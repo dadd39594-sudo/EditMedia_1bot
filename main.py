@@ -187,7 +187,8 @@ async def start_web_server():
 
 # --- MAIN EXECUTION ---
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     loop.create_task(start_web_server())
     logger.info("Starting Bot...")
     bot.run()
