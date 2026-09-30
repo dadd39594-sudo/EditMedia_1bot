@@ -22,8 +22,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 # Environment Variables
-API_ID = int(os.getenv("API_ID", "0"))
-API_HASH = os.getenv("API_HASH", "")
+API_ID = int(os.getenv("API_ID", "2040"))
+API_HASH = os.getenv("API_HASH", "b18441a1ff607e10a989891a5462e627")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 FIREBASE_JSON = os.getenv("FIREBASE_JSON", "")
 PORT = int(os.getenv("PORT", 8080))
