@@ -1,0 +1,5 @@
+pyrogram
+tgcrypto
+pillow
+aiohttp
+firebase-admin
