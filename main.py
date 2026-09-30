@@ -187,8 +187,23 @@ async def start_web_server():
 
 # --- MAIN EXECUTION ---
 if __name__ == "__main__":
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.create_task(start_web_server())
-    logger.info("Starting Bot...")
-    bot.run()
+    import asyncio
+    from pyrogram import idle
+
+    async def main():
+        # ১. রেন্ডারের জন্য ওয়েব সার্ভার চালু করা
+        runner = await init_web_server()
+        
+        # ২. বট চালু করা
+        logger.info("Starting Pyrogram Bot...")
+        await app.start()
+        
+        # ৩. বটকে ২৪ ঘণ্টা সজাগ রাখা (আপনার infinity_polling-এর মতো কাজ করবে)
+        await idle()
+        
+        # ৪. বট বন্ধ হলে সার্ভার অফ করা
+        await app.stop()
+        await runner.cleanup()
+
+    # একদম নতুন পাইথনের নিয়ম
+    asyncio.run(main())
