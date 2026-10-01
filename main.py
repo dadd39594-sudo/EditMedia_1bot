@@ -33,12 +33,13 @@ IMGBB_API_KEY = os.getenv("IMGBB_API_KEY", "")
 CHANNELS = os.getenv("CHANNELS", "").replace(" ", "").split(",")
 PORT = int(os.getenv("PORT", 8080))
 
-# State Management constants
+# State Constants
 STATE_NONE = 0
 STATE_WAITING_PHOTO = 1
 STATE_WAITING_RESIZE_CUSTOM = 2
 STATE_ADMIN_BROADCAST = 3
 
+# Global Storage
 USER_DATA: Dict[int, dict] = {}
 
 # --- FIREBASE SETUP ---
@@ -51,7 +52,7 @@ try:
         })
         logger.info("Firebase successfully initialized.")
 except Exception as e:
-    logger.error(f"Firebase Initialization Error: {e}")
+    logger.error(f"Firebase Init Error: {e}")
 
 # --- HELPERS ---
 
@@ -63,6 +64,23 @@ async def is_subscribed(client: Client, user_id: int):
         except UserNotParticipant: return False
         except Exception: return False
     return True
+
+async def is_banned(user_id: int):
+    try:
+        return db.reference(f"banned/{user_id}").get() is True
+    except: return False
+
+def get_file_info(path):
+    """Requirement 2: Extract Image Stats"""
+    if not path or not os.path.exists(path): return "No active image."
+    try:
+        with Image.open(path) as img:
+            w, h = img.size
+            fmt = img.format
+        size_bytes = os.path.getsize(path)
+        size_str = f"{size_bytes / 1024:.1f} KB" if size_bytes < 1048576 else f"{size_bytes / 1048576:.2f} MB"
+        return f"📏 **Resolution:** {w}x{h}\n📄 **Format:** {fmt}\n🗂️ **File Size:** {size_str}"
+    except: return "Unable to read image info."
 
 async def get_force_sub_markup():
     buttons = []
@@ -99,96 +117,123 @@ bot = Client("EditMediaBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOK
 # --- KEYBOARDS ---
 
 def get_main_markup(user_id):
+    """Requirement 1 & 4: Navigation with persistent session"""
+    has_photo = USER_DATA.get(user_id, {}).get("source") is not None
     buttons = [
         [InlineKeyboardButton("📐 Resize", callback_data="op_resize"), InlineKeyboardButton("🗜️ Compress", callback_data="op_compress")],
         [InlineKeyboardButton("🔗 Public Link", callback_data="op_link")],
         [InlineKeyboardButton("📄 Image to PDF", callback_data="op_pdf"), InlineKeyboardButton("✂️ Converter", callback_data="op_convert")]
     ]
+    if has_photo:
+        buttons.append([InlineKeyboardButton("🔄 Change Photo", callback_data="ask_photo")])
     if user_id == ADMIN_ID:
         buttons.append([InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin_main")])
     return InlineKeyboardMarkup(buttons)
 
-def get_back_btn(callback="go_home"):
-    return [InlineKeyboardButton("« Back", callback_data=callback)]
-
-RESIZE_MARKUP = InlineKeyboardMarkup([
-    [InlineKeyboardButton("Square (1080x1080)", callback_data="res_1080x1080")],
-    [InlineKeyboardButton("HD (1280x720)", callback_data="res_1280x720")],
-    [InlineKeyboardButton("Full HD (1920x1080)", callback_data="res_1920x1080")],
-    [InlineKeyboardButton("4K (3840x2160)", callback_data="res_3840x2160")],
-    [InlineKeyboardButton("⌨️ Custom Size", callback_data="res_custom")],
-    get_back_btn()
-])
-
-COMPRESS_MARKUP = InlineKeyboardMarkup([
-    [InlineKeyboardButton("🟢 High Quality", callback_data="comp_80")],
-    [InlineKeyboardButton("🟡 Medium Quality", callback_data="comp_50")],
-    [InlineKeyboardButton("🔴 Ultra Compress", callback_data="comp_20")],
-    get_back_btn()
-])
-
-CONVERT_MARKUP = InlineKeyboardMarkup([
-    [InlineKeyboardButton("PNG", callback_data="conv_png"), InlineKeyboardButton("JPG", callback_data="conv_jpeg")],
-    [InlineKeyboardButton("WEBP", callback_data="conv_webp")],
-    get_back_btn()
-])
+def back_home():
+    return [InlineKeyboardButton("« Back to Menu", callback_data="go_home")]
 
 # --- HANDLERS ---
 
 @bot.on_message(filters.command("start") & filters.private)
 async def start_cmd(client: Client, message: Message):
-    user = message.from_user
-    is_new = update_user_stats(user.id, user.first_name, user.username)
+    user_id = message.from_user.id
+    if await is_banned(user_id): return
     
+    is_new = update_user_stats(user_id, message.from_user.first_name, message.from_user.username)
     if is_new and ADMIN_ID:
-        await client.send_message(ADMIN_ID, f"🆕 **New User:** {user.first_name} (`{user.id}`)")
+        await client.send_message(ADMIN_ID, f"🆕 **New User:** {message.from_user.first_name} (`{user_id}`)")
 
-    if not await is_subscribed(client, user.id):
+    if not await is_subscribed(client, user_id):
         return await message.reply_text("❌ **Join Channels to Continue!**", reply_markup=await get_force_sub_markup())
 
-    text = (f"✨ **Hello {user.first_name}!**\n\n"
-            "I am **EditMediaBot Premium**. Select an option below to start processing your images.")
-    await message.reply_text(text, reply_markup=get_main_markup(user.id))
+    # Requirement 5: Identity Fix
+    text = (f"✨ **Hello {message.from_user.first_name}!**\n\n"
+            "Welcome to **EditMediaBot Premium**. I can process your images without quality loss.\n\n"
+            "👇 Select an option to begin:")
+    await message.reply_text(text, reply_markup=get_main_markup(user_id))
 
 @bot.on_callback_query()
 async def callback_handler(client: Client, query: CallbackQuery):
     user_id = query.from_user.id
+    if await is_banned(user_id): return await query.answer("You are banned.", show_alert=True)
+    
     data = query.data
 
+    # Requirement 4: Message Navigation Fix
     if data == "go_home":
-        if not await is_subscribed(client, user_id):
-            return await query.answer("❌ Subscribe first!", show_alert=True)
-        USER_DATA[user_id] = {"state": STATE_NONE}
-        return await query.message.edit_text(f"✨ **Hello {query.from_user.first_name}!**\nSelect a tool:", reply_markup=get_main_markup(user_id))
+        USER_DATA[user_id] = USER_DATA.get(user_id, {"state": STATE_NONE})
+        USER_DATA[user_id]["state"] = STATE_NONE
+        img_info = get_file_info(USER_DATA[user_id].get("source"))
+        text = f"✨ **Main Menu**\n\n{img_info}\n\nWhat would you like to do?"
+        return await query.message.edit_text(text, reply_markup=get_main_markup(user_id))
 
-    if not await is_subscribed(client, user_id):
-        return await query.message.edit_text("❌ **Access Denied!**", reply_markup=await get_force_sub_markup())
+    if data == "ask_photo":
+        USER_DATA[user_id]["state"] = STATE_WAITING_PHOTO
+        return await query.message.edit_text("📸 **Please send the new Image.**", reply_markup=InlineKeyboardMarkup([back_home()]))
 
-    # Operations Navigation
+    # Admin Panel (Requirement 3)
+    if data == "admin_main" and user_id == ADMIN_ID:
+        try:
+            users = db.reference("users").get()
+            count = len(users) if users else 0
+        except: count = "Error fetching"
+        
+        adm_btns = [
+            [InlineKeyboardButton("📣 Broadcast", callback_data="admin_bc")],
+            [InlineKeyboardButton("🚫 Ban", callback_data="admin_ban"), InlineKeyboardButton("✅ Unban", callback_data="admin_unban")],
+            back_home()
+        ]
+        return await query.message.edit_text(f"⚙️ **Admin Panel**\n\nTotal Users: `{count}`", reply_markup=InlineKeyboardMarkup(adm_btns))
+
+    # Operation Logic (Requirement 1 & 2)
     if data.startswith("op_"):
-        operation = data.split("_")[1]
-        USER_DATA[user_id] = {"state": STATE_WAITING_PHOTO, "action": operation}
-        await query.message.edit_text(
-            f"💎 **Mode:** {operation.upper()}\n\n📸 Please **send the image** now.\nClick Back to cancel.",
-            reply_markup=InlineKeyboardMarkup([get_back_btn()])
-        )
+        action = data.split("_")[1]
+        if not USER_DATA.get(user_id, {}).get("source"):
+            USER_DATA[user_id] = {"state": STATE_WAITING_PHOTO, "action": action}
+            return await query.message.edit_text(f"📸 **Mode: {action.upper()}**\n\nPlease send the Image first.")
+        
+        USER_DATA[user_id]["action"] = action
+        info = get_file_info(USER_DATA[user_id]["source"])
+        
+        if action == "resize":
+            markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton("Square (1080x1080)", callback_data="res_1080x1080")],
+                [InlineKeyboardButton("HD (1280x720)", callback_data="res_1280x720")],
+                [InlineKeyboardButton("Full HD (1920x1080)", callback_data="res_1920x1080")],
+                [InlineKeyboardButton("4K (3840x2160)", callback_data="res_3840x2160")],
+                [InlineKeyboardButton("⌨️ Custom", callback_data="res_custom")],
+                back_home()
+            ])
+            await query.message.edit_text(f"📐 **Resize Menu**\n\n{info}", reply_markup=markup)
+        
+        elif action == "compress":
+            markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🟢 High", callback_data="comp_80"), InlineKeyboardButton("🟡 Medium", callback_data="comp_50")],
+                [InlineKeyboardButton("🔴 Ultra", callback_data="comp_20")],
+                back_home()
+            ])
+            await query.message.edit_text(f"🗜️ **Compression Menu**\n\n{info}", reply_markup=markup)
 
-    # Admin Logic
-    elif data == "admin_main" and user_id == ADMIN_ID:
-        users = db.reference("users").get()
-        total = len(users) if users else 0
-        await query.message.edit_text(f"⚙️ **Admin Panel**\n\nTotal Users: `{total}`", 
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📣 Broadcast", callback_data="admin_bc")], get_back_btn()]))
+        elif action == "convert":
+            markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton("PNG", callback_data="conv_png"), InlineKeyboardButton("JPG", callback_data="conv_jpeg")],
+                [InlineKeyboardButton("WEBP", callback_data="conv_webp")],
+                back_home()
+            ])
+            await query.message.edit_text(f"✂️ **Format Converter**\n\n{info}", reply_markup=markup)
+        
+        elif action == "pdf":
+            await process_image_pdf(client, query.message, user_id)
+        
+        elif action == "link":
+            await process_image_link(client, query.message, user_id)
 
-    elif data == "admin_bc" and user_id == ADMIN_ID:
-        USER_DATA[user_id] = {"state": STATE_ADMIN_BROADCAST}
-        await query.message.edit_text("💬 Send message to broadcast:", reply_markup=InlineKeyboardMarkup([get_back_btn()]))
-
-    # Image Processing Callbacks
+    # Sub-operation callbacks
     elif data.startswith("res_"):
         if data == "res_custom":
             USER_DATA[user_id]["state"] = STATE_WAITING_RESIZE_CUSTOM
-            await query.message.edit_text("⌨️ Type: `Width Height` (e.g. `800 600`)", reply_markup=InlineKeyboardMarkup([get_back_btn()]))
+            await query.message.edit_text("⌨️ Type dimensions: `Width Height` (e.g. `800 600`)", reply_markup=InlineKeyboardMarkup([back_home()]))
         else:
             w, h = map(int, data.split("_")[1].split("x"))
             await process_image_resize(client, query.message, user_id, w, h)
@@ -202,126 +247,107 @@ async def callback_handler(client: Client, query: CallbackQuery):
 @bot.on_message((filters.photo | filters.document) & filters.private)
 async def media_handler(client: Client, message: Message):
     user_id = message.from_user.id
-    state_info = USER_DATA.get(user_id)
-
-    if not state_info or state_info.get("state") != STATE_WAITING_PHOTO:
-        return await message.reply_text("❌ Select a mode first using /start")
-
-    status_msg = await message.reply_text("⏳ **Downloading...**")
-    file_path = await message.download()
-    USER_DATA[user_id]["temp_path"] = file_path
+    if await is_banned(user_id): return
     
-    action = state_info.get("action")
-    if action == "resize":
-        await status_msg.edit_text("📐 **Image Received!**\nChoose a preset:", reply_markup=RESIZE_MARKUP)
-    elif action == "compress":
-        await status_msg.edit_text("🗜️ **Image Received!**\nChoose quality:", reply_markup=COMPRESS_MARKUP)
-    elif action == "convert":
-        await status_msg.edit_text("✂️ **Image Received!**\nChoose format:", reply_markup=CONVERT_MARKUP)
-    elif action == "pdf":
-        await process_image_pdf(client, status_msg, user_id)
-    elif action == "link":
-        await process_image_link(client, status_msg, user_id)
+    # Requirement 8: Dynamic Status
+    status = await message.reply_text("⏳ **Downloading...**")
+    path = await message.download()
+    
+    # Cleanup old source if exists
+    old_src = USER_DATA.get(user_id, {}).get("source")
+    if old_src and os.path.exists(old_src): os.remove(old_src)
+    
+    USER_DATA[user_id] = USER_DATA.get(user_id, {})
+    USER_DATA[user_id].update({"source": path, "state": STATE_NONE})
+    
+    info = get_file_info(path)
+    await status.edit_text(f"✅ **Image Received!**\n\n{info}\n\nWhat tool should we use?", reply_markup=get_main_markup(user_id))
 
 @bot.on_message(filters.text & filters.private)
 async def text_handler(client: Client, message: Message):
     user_id = message.from_user.id
-    state_info = USER_DATA.get(user_id)
-    if not state_info: return
+    state = USER_DATA.get(user_id, {}).get("state", STATE_NONE)
 
-    if state_info.get("state") == STATE_ADMIN_BROADCAST and user_id == ADMIN_ID:
-        users = db.reference("users").get()
-        await message.reply_text(f"🚀 Broadcasting to {len(users)} users...")
-        for uid in users:
-            try: await message.copy(int(uid)); await asyncio.sleep(0.1)
-            except: pass
-        await message.reply_text("✅ Done.")
-        USER_DATA[user_id] = {"state": STATE_NONE}
-
-    elif state_info.get("state") == STATE_WAITING_RESIZE_CUSTOM:
+    if state == STATE_WAITING_RESIZE_CUSTOM:
         try:
             w, h = map(int, message.text.split())
             await process_image_resize(client, message, user_id, w, h)
         except: await message.reply_text("❌ Format: `Width Height` (e.g. `1280 720`)")
 
-# --- CORE LOGIC ---
+# --- CORE PROCESSING ---
 
 async def process_image_resize(client, msg, user_id, w, h):
-    path = USER_DATA[user_id].get("temp_path")
+    path = USER_DATA[user_id]["source"]
     out = f"res_{user_id}.png"
     status = await client.send_message(user_id, "⚙️ **Processing Resize...**")
     try:
-        img = Image.open(path)
-        img.resize((w, h), Image.Resampling.LANCZOS).save(out)
+        with Image.open(path) as img:
+            img.resize((w, h), Image.Resampling.LANCZOS).save(out)
         await status.edit_text("📤 **Uploading...**")
+        # Requirement 6: WEBP/Sticker Fix (Force Document)
         await client.send_document(user_id, out, caption=f"✅ Resized to {w}x{h}", force_document=True)
     finally:
-        await status.delete(); cleanup([path, out], user_id)
+        await status.delete(); if os.path.exists(out): os.remove(out)
 
 async def process_image_compress(client, msg, user_id, qual):
-    path = USER_DATA[user_id].get("temp_path")
+    path = USER_DATA[user_id]["source"]
     out = f"comp_{user_id}.jpg"
     status = await client.send_message(user_id, "⚙️ **Compressing...**")
     try:
-        Image.open(path).convert("RGB").save(out, "JPEG", quality=qual, optimize=True)
+        with Image.open(path) as img:
+            img.convert("RGB").save(out, "JPEG", quality=qual, optimize=True)
         await status.edit_text("📤 **Uploading...**")
         await client.send_document(user_id, out, caption=f"✅ Quality: {qual}%", force_document=True)
     finally:
-        await status.delete(); cleanup([path, out], user_id)
+        await status.delete(); if os.path.exists(out): os.remove(out)
 
 async def process_image_convert(client, msg, user_id, fmt):
-    path = USER_DATA[user_id].get("temp_path")
+    path = USER_DATA[user_id]["source"]
     out = f"conv_{user_id}.{fmt}"
     status = await client.send_message(user_id, f"⚙️ **Converting to {fmt.upper()}...**")
     try:
-        img = Image.open(path)
-        if fmt in ["jpg", "jpeg"]: img = img.convert("RGB")
-        img.save(out)
+        with Image.open(path) as img:
+            if fmt in ["jpg", "jpeg"]: img = img.convert("RGB")
+            img.save(out)
         await status.edit_text("📤 **Uploading...**")
-        # Fix Bug 3: Force Document
-        await client.send_document(user_id, out, caption=f"✅ Format: {fmt.upper()}", force_document=True)
+        await client.send_document(user_id, out, caption=f"✅ Target: {fmt.upper()}", force_document=True)
     finally:
-        await status.delete(); cleanup([path, out], user_id)
+        await status.delete(); if os.path.exists(out): os.remove(out)
 
 async def process_image_pdf(client, msg, user_id):
-    path = USER_DATA[user_id].get("temp_path")
+    path = USER_DATA[user_id]["source"]
     out = f"doc_{user_id}.pdf"
-    await msg.edit_text("⚙️ **Converting to PDF...**")
+    status = await client.send_message(user_id, "⚙️ **Creating PDF...**")
     try:
-        Image.open(path).convert("RGB").save(out, "PDF")
-        await msg.edit_text("📤 **Uploading...**")
-        await client.send_document(user_id, out, caption="✅ PDF Generated", force_document=True)
+        with Image.open(path) as img:
+            img.convert("RGB").save(out, "PDF")
+        await status.edit_text("📤 **Uploading...**")
+        await client.send_document(user_id, out, caption="✅ Image to PDF", force_document=True)
     finally:
-        await msg.delete(); cleanup([path, out], user_id)
+        await status.delete(); if os.path.exists(out): os.remove(out)
 
 async def process_image_link(client, msg, user_id):
-    path = USER_DATA[user_id].get("temp_path")
-    await msg.edit_text("📤 **Uploading to Cloud...**")
+    """Requirement 7: Proper Multipart Form Data for ImgBB"""
+    path = USER_DATA[user_id]["source"]
+    status = await client.send_message(user_id, "📤 **Uploading to Cloud...**")
     try:
         async with aiohttp.ClientSession() as sess:
-            # Fix Bug 4: Proper Multipart Form Data
             data = aiohttp.FormData()
-            data.add_field('image', open(path, 'rb'))
+            data.add_field('image', open(path, 'rb'), filename="upload.png")
             data.add_field('key', IMGBB_API_KEY)
             async with sess.post("https://api.imgbb.com/1/upload", data=data) as resp:
                 res = await resp.json()
                 url = res["data"]["url"]
-                await client.send_message(user_id, f"✅ **Public Link:**\n`{url}`", 
+                await client.send_message(user_id, f"✅ **Public Link Generated:**\n`{url}`", 
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Open Link", url=url)]]))
     except: await client.send_message(user_id, "❌ ImgBB Upload Failed.")
-    finally:
-        await msg.delete(); cleanup([path], user_id)
-
-def cleanup(files, user_id):
-    for f in files:
-        if f and os.path.exists(f): os.remove(f)
-    USER_DATA[user_id] = {"state": STATE_NONE}
+    finally: await status.delete()
 
 # --- MAIN ---
 async def main():
     await start_web_server()
     await bot.start()
-    logger.info("Bot Online")
+    logger.info("EditMediaBot Persistent Mode Online")
     await idle()
     await bot.stop()
 
