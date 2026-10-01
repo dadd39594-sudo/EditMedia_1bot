@@ -39,7 +39,7 @@ STATE_WAITING_PHOTO = 1
 STATE_WAITING_RESIZE_CUSTOM = 2
 STATE_ADMIN_BROADCAST = 3
 
-# Global Storage
+# Global Storage for Sessions
 USER_DATA: Dict[int, dict] = {}
 
 # --- FIREBASE SETUP ---
@@ -71,7 +71,6 @@ async def is_banned(user_id: int):
     except: return False
 
 def get_file_info(path):
-    """Requirement 2: Extract Image Stats"""
     if not path or not os.path.exists(path): return "No active image."
     try:
         with Image.open(path) as img:
@@ -117,7 +116,6 @@ bot = Client("EditMediaBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOK
 # --- KEYBOARDS ---
 
 def get_main_markup(user_id):
-    """Requirement 1 & 4: Navigation with persistent session"""
     has_photo = USER_DATA.get(user_id, {}).get("source") is not None
     buttons = [
         [InlineKeyboardButton("📐 Resize", callback_data="op_resize"), InlineKeyboardButton("🗜️ Compress", callback_data="op_compress")],
@@ -147,7 +145,6 @@ async def start_cmd(client: Client, message: Message):
     if not await is_subscribed(client, user_id):
         return await message.reply_text("❌ **Join Channels to Continue!**", reply_markup=await get_force_sub_markup())
 
-    # Requirement 5: Identity Fix
     text = (f"✨ **Hello {message.from_user.first_name}!**\n\n"
             "Welcome to **EditMediaBot Premium**. I can process your images without quality loss.\n\n"
             "👇 Select an option to begin:")
@@ -160,8 +157,9 @@ async def callback_handler(client: Client, query: CallbackQuery):
     
     data = query.data
 
-    # Requirement 4: Message Navigation Fix
     if data == "go_home":
+        if not await is_subscribed(client, user_id):
+            return await query.answer("❌ Subscribe first!", show_alert=True)
         USER_DATA[user_id] = USER_DATA.get(user_id, {"state": STATE_NONE})
         USER_DATA[user_id]["state"] = STATE_NONE
         img_info = get_file_info(USER_DATA[user_id].get("source"))
@@ -172,7 +170,6 @@ async def callback_handler(client: Client, query: CallbackQuery):
         USER_DATA[user_id]["state"] = STATE_WAITING_PHOTO
         return await query.message.edit_text("📸 **Please send the new Image.**", reply_markup=InlineKeyboardMarkup([back_home()]))
 
-    # Admin Panel (Requirement 3)
     if data == "admin_main" and user_id == ADMIN_ID:
         try:
             users = db.reference("users").get()
@@ -186,7 +183,6 @@ async def callback_handler(client: Client, query: CallbackQuery):
         ]
         return await query.message.edit_text(f"⚙️ **Admin Panel**\n\nTotal Users: `{count}`", reply_markup=InlineKeyboardMarkup(adm_btns))
 
-    # Operation Logic (Requirement 1 & 2)
     if data.startswith("op_"):
         action = data.split("_")[1]
         if not USER_DATA.get(user_id, {}).get("source"):
@@ -229,7 +225,6 @@ async def callback_handler(client: Client, query: CallbackQuery):
         elif action == "link":
             await process_image_link(client, query.message, user_id)
 
-    # Sub-operation callbacks
     elif data.startswith("res_"):
         if data == "res_custom":
             USER_DATA[user_id]["state"] = STATE_WAITING_RESIZE_CUSTOM
@@ -249,13 +244,13 @@ async def media_handler(client: Client, message: Message):
     user_id = message.from_user.id
     if await is_banned(user_id): return
     
-    # Requirement 8: Dynamic Status
     status = await message.reply_text("⏳ **Downloading...**")
     path = await message.download()
     
-    # Cleanup old source if exists
     old_src = USER_DATA.get(user_id, {}).get("source")
-    if old_src and os.path.exists(old_src): os.remove(old_src)
+    if old_src and os.path.exists(old_src): 
+        try: os.remove(old_src)
+        except: pass
     
     USER_DATA[user_id] = USER_DATA.get(user_id, {})
     USER_DATA[user_id].update({"source": path, "state": STATE_NONE})
@@ -284,10 +279,11 @@ async def process_image_resize(client, msg, user_id, w, h):
         with Image.open(path) as img:
             img.resize((w, h), Image.Resampling.LANCZOS).save(out)
         await status.edit_text("📤 **Uploading...**")
-        # Requirement 6: WEBP/Sticker Fix (Force Document)
         await client.send_document(user_id, out, caption=f"✅ Resized to {w}x{h}", force_document=True)
     finally:
-        await status.delete(); if os.path.exists(out): os.remove(out)
+        await status.delete()
+        if os.path.exists(out): 
+            os.remove(out)
 
 async def process_image_compress(client, msg, user_id, qual):
     path = USER_DATA[user_id]["source"]
@@ -299,7 +295,9 @@ async def process_image_compress(client, msg, user_id, qual):
         await status.edit_text("📤 **Uploading...**")
         await client.send_document(user_id, out, caption=f"✅ Quality: {qual}%", force_document=True)
     finally:
-        await status.delete(); if os.path.exists(out): os.remove(out)
+        await status.delete()
+        if os.path.exists(out): 
+            os.remove(out)
 
 async def process_image_convert(client, msg, user_id, fmt):
     path = USER_DATA[user_id]["source"]
@@ -312,7 +310,9 @@ async def process_image_convert(client, msg, user_id, fmt):
         await status.edit_text("📤 **Uploading...**")
         await client.send_document(user_id, out, caption=f"✅ Target: {fmt.upper()}", force_document=True)
     finally:
-        await status.delete(); if os.path.exists(out): os.remove(out)
+        await status.delete()
+        if os.path.exists(out): 
+            os.remove(out)
 
 async def process_image_pdf(client, msg, user_id):
     path = USER_DATA[user_id]["source"]
@@ -324,10 +324,11 @@ async def process_image_pdf(client, msg, user_id):
         await status.edit_text("📤 **Uploading...**")
         await client.send_document(user_id, out, caption="✅ Image to PDF", force_document=True)
     finally:
-        await status.delete(); if os.path.exists(out): os.remove(out)
+        await status.delete()
+        if os.path.exists(out): 
+            os.remove(out)
 
 async def process_image_link(client, msg, user_id):
-    """Requirement 7: Proper Multipart Form Data for ImgBB"""
     path = USER_DATA[user_id]["source"]
     status = await client.send_message(user_id, "📤 **Uploading to Cloud...**")
     try:
@@ -341,7 +342,8 @@ async def process_image_link(client, msg, user_id):
                 await client.send_message(user_id, f"✅ **Public Link Generated:**\n`{url}`", 
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Open Link", url=url)]]))
     except: await client.send_message(user_id, "❌ ImgBB Upload Failed.")
-    finally: await status.delete()
+    finally: 
+        await status.delete()
 
 # --- MAIN ---
 async def main():
