@@ -636,7 +636,7 @@ async def process_image_pdf(client: Client, msg: Message, user_id: int):
             os.remove(out)
 
 async def process_image_link(client: Client, msg: Message, user_id: int):
-    """Directive 1: Physical file read and Base64 Form Data upload."""
+    import aiohttp
     path = USER_DATA.get(user_id, {}).get("source")
     if not path or not os.path.exists(path):
         await client.send_message(user_id, "❌ No active image found. Please upload an image first.")
@@ -656,11 +656,13 @@ async def process_image_link(client: Client, msg: Message, user_id: int):
             b64_str = base64.b64encode(img_file.read()).decode('utf-8')
             
         async with aiohttp.ClientSession() as sess:
-            data = aiohttp.FormData()
-            data.add_field('image', b64_str)
-            data.add_field('key', IMGBB_API_KEY)
+            # FIX: Using standard dictionary instead of FormData()
+            payload = {
+                "key": IMGBB_API_KEY,
+                "image": b64_str
+            }
             
-            async with sess.post("https://api.imgbb.com/1/upload", data=data) as resp:
+            async with sess.post("https://api.imgbb.com/1/upload", data=payload) as resp:
                 res = await resp.json()
                 if resp.status == 200 and res.get("success"):
                     url = res["data"]["url"]
@@ -677,7 +679,7 @@ async def process_image_link(client: Client, msg: Message, user_id: int):
                     await client.send_message(user_id, f"❌ ImgBB Upload Failed: {err_msg}")
     except Exception as e:
         logger.error(f"ImgBB Error: {e}")
-        await client.send_message(user_id, "❌ ImgBB Upload Failed. Check API Key or Network.")
+        await client.send_message(user_id, f"❌ ImgBB Upload Failed. (Error: {str(e)})")
     finally: 
         try: await status.delete()
         except: pass
