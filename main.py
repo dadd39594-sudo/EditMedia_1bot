@@ -649,26 +649,28 @@ async def process_image_link(client: Client, msg: Message, user_id: int):
 
     status = await client.send_message(user_id, "📤 **Generating Public Link...**")
     try:
-        # ImgBB বাদ দিয়ে টেলিগ্রামের নিজস্ব Telegraph সার্ভার ব্যবহার করা হচ্ছে
+        # File bytes read kore explicit filename and content_type dewa hochhe
         with open(path, "rb") as f:
-            async with aiohttp.ClientSession() as sess:
-                form = aiohttp.FormData()
-                form.add_field('file', f, filename=os.path.basename(path))
-                
-                async with sess.post("https://telegra.ph/upload", data=form) as resp:
-                    res = await resp.json()
-                    if isinstance(res, list) and "src" in res[0]:
-                        url = "https://telegra.ph" + res[0]["src"]
-                        out_info = get_file_info(path)
-                        caption = f"✅ **Public Link Generated!**\n\n{out_info}\n\n🔗 `{url}`"
-                        
-                        btns = get_main_buttons(user_id).inline_keyboard.copy()
-                        btns.insert(0, [InlineKeyboardButton("🔗 Open Cloud Link", url=url)])
-                        
-                        await client.send_message(user_id, caption, reply_markup=InlineKeyboardMarkup(btns))
-                    else:
-                        error_msg = res.get('error', 'Unknown Error') if isinstance(res, dict) else "Format Error"
-                        await client.send_message(user_id, f"❌ Link Generation Failed: {error_msg}")
+            file_bytes = f.read()
+            
+        async with aiohttp.ClientSession() as sess:
+            form = aiohttp.FormData()
+            form.add_field('file', file_bytes, filename="image.jpg", content_type="image/jpeg")
+            
+            async with sess.post("https://telegra.ph/upload", data=form) as resp:
+                res = await resp.json()
+                if isinstance(res, list) and "src" in res[0]:
+                    url = "https://telegra.ph" + res[0]["src"]
+                    out_info = get_file_info(path)
+                    caption = f"✅ **Public Link Generated!**\n\n{out_info}\n\n🔗 `{url}`"
+                    
+                    btns = get_main_buttons(user_id).inline_keyboard.copy()
+                    btns.insert(0, [InlineKeyboardButton("🔗 Open Cloud Link", url=url)])
+                    
+                    await client.send_message(user_id, caption, reply_markup=InlineKeyboardMarkup(btns))
+                else:
+                    error_msg = res.get('error', 'Unknown Error') if isinstance(res, dict) else "Format Error"
+                    await client.send_message(user_id, f"❌ Link Generation Failed: {error_msg}")
     except Exception as e:
         logger.error(f"Telegraph Error: {e}")
         await client.send_message(user_id, f"❌ Server Connection Failed. (Error: {str(e)})")
