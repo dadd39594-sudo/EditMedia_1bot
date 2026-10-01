@@ -637,13 +637,10 @@ async def process_image_pdf(client: Client, msg: Message, user_id: int):
 
 async def process_image_link(client: Client, msg: Message, user_id: int):
     import aiohttp
+    import os
     path = USER_DATA.get(user_id, {}).get("source")
     if not path or not os.path.exists(path):
         await client.send_message(user_id, "❌ No active image found. Please upload an image first.")
-        return
-
-    if not IMGBB_API_KEY:
-        await client.send_message(user_id, "❌ ImgBB API Key is missing in environment variables.")
         return
 
     if msg:
@@ -652,34 +649,29 @@ async def process_image_link(client: Client, msg: Message, user_id: int):
 
     status = await client.send_message(user_id, "📤 **Generating Public Link...**")
     try:
-        with open(path, "rb") as img_file:
-            b64_str = base64.b64encode(img_file.read()).decode('utf-8')
-            
-        async with aiohttp.ClientSession() as sess:
-            # FIX: Using standard dictionary instead of FormData()
-            payload = {
-                "key": IMGBB_API_KEY,
-                "image": b64_str
-            }
-            
-            async with sess.post("https://api.imgbb.com/1/upload", data=payload) as resp:
-                res = await resp.json()
-                if resp.status == 200 and res.get("success"):
-                    url = res["data"]["url"]
-                    out_info = get_file_info(path)
-                    caption = f"✅ **Public Link Generated!**\n\n{out_info}\n\n🔗 `{url}`"
-                    
-                    btns = get_main_buttons(user_id).inline_keyboard.copy()
-                    btns.insert(0, [InlineKeyboardButton("🔗 Open Cloud Link", url=url)])
-                    
-                    await client.send_message(user_id, caption, reply_markup=InlineKeyboardMarkup(btns))
-                else:
-                    err_msg = res.get("error", {}).get("message", "Unknown error")
-                    logger.error(f"ImgBB API Error: {err_msg}")
-                    await client.send_message(user_id, f"❌ ImgBB Upload Failed: {err_msg}")
+        # ImgBB বাদ দিয়ে টেলিগ্রামের নিজস্ব Telegraph সার্ভার ব্যবহার করা হচ্ছে
+        with open(path, "rb") as f:
+            async with aiohttp.ClientSession() as sess:
+                form = aiohttp.FormData()
+                form.add_field('file', f, filename=os.path.basename(path))
+                
+                async with sess.post("https://telegra.ph/upload", data=form) as resp:
+                    res = await resp.json()
+                    if isinstance(res, list) and "src" in res[0]:
+                        url = "https://telegra.ph" + res[0]["src"]
+                        out_info = get_file_info(path)
+                        caption = f"✅ **Public Link Generated!**\n\n{out_info}\n\n🔗 `{url}`"
+                        
+                        btns = get_main_buttons(user_id).inline_keyboard.copy()
+                        btns.insert(0, [InlineKeyboardButton("🔗 Open Cloud Link", url=url)])
+                        
+                        await client.send_message(user_id, caption, reply_markup=InlineKeyboardMarkup(btns))
+                    else:
+                        error_msg = res.get('error', 'Unknown Error') if isinstance(res, dict) else "Format Error"
+                        await client.send_message(user_id, f"❌ Link Generation Failed: {error_msg}")
     except Exception as e:
-        logger.error(f"ImgBB Error: {e}")
-        await client.send_message(user_id, f"❌ ImgBB Upload Failed. (Error: {str(e)})")
+        logger.error(f"Telegraph Error: {e}")
+        await client.send_message(user_id, f"❌ Server Connection Failed. (Error: {str(e)})")
     finally: 
         try: await status.delete()
         except: pass
