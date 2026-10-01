@@ -132,8 +132,8 @@ async def safe_edit(query: CallbackQuery, text: str, reply_markup: InlineKeyboar
         pass
 
 async def send_processed_file(client: Client, user_id: int, file_path: str, action_text: str):
-    """Handles unified output sending (Photo vs Document logic) + Context Menu underneath."""
-    is_doc = USER_DATA[user_id].get("is_doc", False)
+    """Directive 2: Output sending with caption stats and main menu attached directly."""
+    is_doc = USER_DATA.get(user_id, {}).get("is_doc", False)
     force_doc = is_doc or file_path.lower().endswith(".webp") or file_path.lower().endswith(".pdf")
     
     out_info = get_file_info(file_path)
@@ -143,9 +143,20 @@ async def send_processed_file(client: Client, user_id: int, file_path: str, acti
         caption += "\n\n💡 **Note:** Sent as a document to preserve format/quality."
         
     if force_doc:
-        await client.send_document(user_id, file_path, caption=caption, reply_markup=get_main_buttons(user_id), force_document=True)
+        await client.send_document(
+            chat_id=user_id,
+            document=file_path,
+            caption=caption,
+            reply_markup=get_main_buttons(user_id),
+            force_document=True
+        )
     else:
-        await client.send_photo(user_id, file_path, caption=caption, reply_markup=get_main_buttons(user_id))
+        await client.send_photo(
+            chat_id=user_id,
+            photo=file_path,
+            caption=caption,
+            reply_markup=get_main_buttons(user_id)
+        )
 
 # --- WEB SERVER ---
 async def handle_health_check(request):
@@ -186,7 +197,6 @@ async def start_cmd(client: Client, message: Message):
 
 @bot.on_callback_query()
 async def callback_handler(client: Client, query: CallbackQuery):
-    # Requirement 2: Absolute Priority Callback Timeout Prevention
     try: await query.answer()
     except: pass
 
@@ -194,9 +204,11 @@ async def callback_handler(client: Client, query: CallbackQuery):
     if await is_banned(user_id): return await query.answer("Banned.", show_alert=True)
     data = query.data
 
+    # Directive 5: Reset state cleanly when going home or canceling
     if data == "go_home":
-        USER_DATA[user_id] = USER_DATA.get(user_id, {"state": STATE_NONE})
+        USER_DATA[user_id] = USER_DATA.get(user_id, {})
         USER_DATA[user_id]["state"] = STATE_NONE
+        USER_DATA[user_id]["action"] = None
         return await safe_edit(query, get_welcome_layout(user_id, query.from_user.first_name), get_main_buttons(user_id))
 
     if data == "show_rules":
@@ -206,34 +218,76 @@ async def callback_handler(client: Client, query: CallbackQuery):
                 "3️⃣ **Privacy:** Files are deleted from our servers immediately after processing.")
         return await safe_edit(query, text, InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data="go_home")]]))
 
-    # Requirement 4: Smart Replace Logic
+    # Directive 4: Smart Replace Logic
     if data == "replace_photo":
-        temp_path = USER_DATA[user_id].get("temp_new_source")
-        old_path = USER_DATA[user_id].get("source")
+        temp_path = USER_DATA.get(user_id, {}).get("temp_new_source")
+        temp_is_doc = USER_DATA.get(user_id, {}).get("temp_is_doc", False)
+        old_path = USER_DATA.get(user_id, {}).get("source")
+        
         if old_path and os.path.exists(old_path):
             try: os.remove(old_path)
             except: pass
         
         USER_DATA[user_id]["source"] = temp_path
-        USER_DATA[user_id]["is_doc"] = USER_DATA[user_id].get("temp_is_doc", False)
+        USER_DATA[user_id]["is_doc"] = temp_is_doc
+        USER_DATA[user_id]["temp_new_source"] = None
         USER_DATA[user_id]["state"] = STATE_NONE
         
         await query.message.delete()
-        return await client.send_message(user_id, get_welcome_layout(user_id, query.from_user.first_name), reply_markup=get_main_buttons(user_id))
+        
+        # Directive 3: Check pending action after replacement
+        action = USER_DATA.get(user_id, {}).get("action")
+        USER_DATA[user_id]["action"] = None
+        
+        if action == "resize":
+            btns = [
+                [InlineKeyboardButton("Square (1080x1080)", callback_data="res_1080x1080")],
+                [InlineKeyboardButton("HD (1280x720)", callback_data="res_1280x720")],
+                [InlineKeyboardButton("Full HD (1920x1080)", callback_data="res_1920x1080")],
+                [InlineKeyboardButton("4K (3840x2160)", callback_data="res_3840x2160")],
+                [InlineKeyboardButton("⌨️ Custom Size", callback_data="res_custom")],
+                [InlineKeyboardButton("« Back", callback_data="go_home")]
+            ]
+            await client.send_message(user_id, "📐 **Choose Resize Preset:**", reply_markup=InlineKeyboardMarkup(btns))
+        elif action == "compress":
+            btns = [
+                [InlineKeyboardButton("🟢 High Quality", callback_data="comp_80")],
+                [InlineKeyboardButton("🟡 Medium Quality", callback_data="comp_50")],
+                [InlineKeyboardButton("🔴 Ultra Compress", callback_data="comp_20")],
+                [InlineKeyboardButton("« Back", callback_data="go_home")]
+            ]
+            await client.send_message(user_id, "🗜️ **Choose Quality:**", reply_markup=InlineKeyboardMarkup(btns))
+        elif action == "convert":
+            btns = [
+                [InlineKeyboardButton("PNG", callback_data="conv_png"), InlineKeyboardButton("JPG", callback_data="conv_jpeg")],
+                [InlineKeyboardButton("WEBP", callback_data="conv_webp")],
+                [InlineKeyboardButton("« Back", callback_data="go_home")]
+            ]
+            await client.send_message(user_id, "✂️ **Choose Format:**", reply_markup=InlineKeyboardMarkup(btns))
+        elif action == "pdf":
+            await process_image_pdf(client, None, user_id)
+        elif action == "link":
+            await process_image_link(client, None, user_id)
+        else:
+            await client.send_message(user_id, get_welcome_layout(user_id, query.from_user.first_name), reply_markup=get_main_buttons(user_id))
+        return
 
     if data == "keep_photo":
-        temp_path = USER_DATA[user_id].get("temp_new_source")
+        temp_path = USER_DATA.get(user_id, {}).get("temp_new_source")
         if temp_path and os.path.exists(temp_path):
             try: os.remove(temp_path)
             except: pass
+        USER_DATA[user_id]["temp_new_source"] = None
         return await query.message.delete()
 
+    # Directive 4: Do not delete active photo on request
     if data == "ask_photo":
         USER_DATA[user_id]["state"] = STATE_WAITING_PHOTO
         return await safe_edit(query, "📸 **Please send the new Image.**", InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data="go_home")]]))
 
     # Admin Dashboard Logic
     if data == "admin_main" and user_id == ADMIN_ID:
+        USER_DATA[user_id]["state"] = STATE_NONE
         count = "N/A"
         try:
             if firebase_admin._apps:
@@ -253,7 +307,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
 
     if data in ["admin_bc", "admin_ban", "admin_unban"] and user_id == ADMIN_ID:
         state_map = {"admin_bc": STATE_ADMIN_BROADCAST, "admin_ban": STATE_ADMIN_BAN, "admin_unban": STATE_ADMIN_UNBAN}
-        USER_DATA[user_id] = {"state": state_map[data]}
+        USER_DATA[user_id]["state"] = state_map[data]
         return await safe_edit(query, "💬 **Waiting for your input...**", InlineKeyboardMarkup([[InlineKeyboardButton("Cancel", callback_data="admin_main")]]))
 
     # Tools Logic
@@ -265,26 +319,34 @@ async def callback_handler(client: Client, query: CallbackQuery):
         
         USER_DATA[user_id]["action"] = action
         if action == "resize":
-            btns = [[InlineKeyboardButton("Square (1080x1080)", callback_data="res_1080x1080")],
-                    [InlineKeyboardButton("HD (1280x720)", callback_data="res_1280x720")],
-                    [InlineKeyboardButton("Full HD (1920x1080)", callback_data="res_1920x1080")],
-                    [InlineKeyboardButton("4K (3840x2160)", callback_data="res_3840x2160")],
-                    [InlineKeyboardButton("⌨️ Custom Size", callback_data="res_custom")],
-                    [InlineKeyboardButton("« Back", callback_data="go_home")]]
+            btns = [
+                [InlineKeyboardButton("Square (1080x1080)", callback_data="res_1080x1080")],
+                [InlineKeyboardButton("HD (1280x720)", callback_data="res_1280x720")],
+                [InlineKeyboardButton("Full HD (1920x1080)", callback_data="res_1920x1080")],
+                [InlineKeyboardButton("4K (3840x2160)", callback_data="res_3840x2160")],
+                [InlineKeyboardButton("⌨️ Custom Size", callback_data="res_custom")],
+                [InlineKeyboardButton("« Back", callback_data="go_home")]
+            ]
             await safe_edit(query, "📐 **Choose Resize Preset:**", InlineKeyboardMarkup(btns))
         elif action == "compress":
-            btns = [[InlineKeyboardButton("🟢 High Quality", callback_data="comp_80")],
-                    [InlineKeyboardButton("🟡 Medium Quality", callback_data="comp_50")],
-                    [InlineKeyboardButton("🔴 Ultra Compress", callback_data="comp_20")],
-                    [InlineKeyboardButton("« Back", callback_data="go_home")]]
+            btns = [
+                [InlineKeyboardButton("🟢 High Quality", callback_data="comp_80")],
+                [InlineKeyboardButton("🟡 Medium Quality", callback_data="comp_50")],
+                [InlineKeyboardButton("🔴 Ultra Compress", callback_data="comp_20")],
+                [InlineKeyboardButton("« Back", callback_data="go_home")]
+            ]
             await safe_edit(query, "🗜️ **Choose Quality:**", InlineKeyboardMarkup(btns))
         elif action == "convert":
-            btns = [[InlineKeyboardButton("PNG", callback_data="conv_png"), InlineKeyboardButton("JPG", callback_data="conv_jpeg")],
-                    [InlineKeyboardButton("WEBP", callback_data="conv_webp")],
-                    [InlineKeyboardButton("« Back", callback_data="go_home")]]
+            btns = [
+                [InlineKeyboardButton("PNG", callback_data="conv_png"), InlineKeyboardButton("JPG", callback_data="conv_jpeg")],
+                [InlineKeyboardButton("WEBP", callback_data="conv_webp")],
+                [InlineKeyboardButton("« Back", callback_data="go_home")]
+            ]
             await safe_edit(query, "✂️ **Choose Format:**", InlineKeyboardMarkup(btns))
-        elif action == "pdf": await process_image_pdf(client, query.message, user_id)
-        elif action == "link": await process_image_link(client, query.message, user_id)
+        elif action == "pdf":
+            await process_image_pdf(client, query.message, user_id)
+        elif action == "link":
+            await process_image_link(client, query.message, user_id)
 
     elif data.startswith("res_"):
         if data == "res_custom":
@@ -306,11 +368,10 @@ async def media_handler(client: Client, message: Message):
     if await is_banned(user_id): return
     
     is_doc = bool(message.document)
-    state = USER_DATA.get(user_id, {}).get("state", STATE_NONE)
     old_src = USER_DATA.get(user_id, {}).get("source")
     
-    # Requirement 4: Ask before overwriting if they didn't explicitly request to change photo
-    if old_src and os.path.exists(old_src) and state != STATE_WAITING_PHOTO:
+    # Directive 4: Prevent accidental overwrites
+    if old_src and os.path.exists(old_src):
         status = await message.reply_text("⏳ **Downloading new image...**")
         path = await message.download()
         try: await status.delete()
@@ -320,30 +381,64 @@ async def media_handler(client: Client, message: Message):
         USER_DATA[user_id]["temp_new_source"] = path
         USER_DATA[user_id]["temp_is_doc"] = is_doc
         
-        btns = [[InlineKeyboardButton("✅ Yes, Replace", callback_data="replace_photo")],
-                [InlineKeyboardButton("❌ No, Keep Old", callback_data="keep_photo")]]
+        btns = [
+            [InlineKeyboardButton("✅ Yes, Replace", callback_data="replace_photo")],
+            [InlineKeyboardButton("❌ No, Keep Old", callback_data="keep_photo")]
+        ]
         await message.reply_text("📸 **New Image Detected!** Do you want to replace your current active photo?", reply_markup=InlineKeyboardMarkup(btns))
         return
 
+    # First time uploading
     status = await message.reply_text("⏳ **Downloading Image...**")
     path = await message.download()
+    try: await status.delete()
+    except: pass
     
-    if old_src and os.path.exists(old_src):
-        try: os.remove(old_src)
-        except: pass
-        
     USER_DATA[user_id] = USER_DATA.get(user_id, {})
     USER_DATA[user_id].update({"source": path, "state": STATE_NONE, "is_doc": is_doc})
     
-    try: await status.delete()
-    except: pass
-    await message.reply_text(get_welcome_layout(user_id, message.from_user.first_name), reply_markup=get_main_buttons(user_id))
+    # Directive 3: Action State Retention
+    action = USER_DATA[user_id].get("action")
+    USER_DATA[user_id]["action"] = None
+    
+    if action == "resize":
+        btns = [
+            [InlineKeyboardButton("Square (1080x1080)", callback_data="res_1080x1080")],
+            [InlineKeyboardButton("HD (1280x720)", callback_data="res_1280x720")],
+            [InlineKeyboardButton("Full HD (1920x1080)", callback_data="res_1920x1080")],
+            [InlineKeyboardButton("4K (3840x2160)", callback_data="res_3840x2160")],
+            [InlineKeyboardButton("⌨️ Custom Size", callback_data="res_custom")],
+            [InlineKeyboardButton("« Back", callback_data="go_home")]
+        ]
+        await message.reply_text("📐 **Choose Resize Preset:**", reply_markup=InlineKeyboardMarkup(btns))
+    elif action == "compress":
+        btns = [
+            [InlineKeyboardButton("🟢 High Quality", callback_data="comp_80")],
+            [InlineKeyboardButton("🟡 Medium Quality", callback_data="comp_50")],
+            [InlineKeyboardButton("🔴 Ultra Compress", callback_data="comp_20")],
+            [InlineKeyboardButton("« Back", callback_data="go_home")]
+        ]
+        await message.reply_text("🗜️ **Choose Quality:**", reply_markup=InlineKeyboardMarkup(btns))
+    elif action == "convert":
+        btns = [
+            [InlineKeyboardButton("PNG", callback_data="conv_png"), InlineKeyboardButton("JPG", callback_data="conv_jpeg")],
+            [InlineKeyboardButton("WEBP", callback_data="conv_webp")],
+            [InlineKeyboardButton("« Back", callback_data="go_home")]
+        ]
+        await message.reply_text("✂️ **Choose Format:**", reply_markup=InlineKeyboardMarkup(btns))
+    elif action == "pdf":
+        await process_image_pdf(client, None, user_id)
+    elif action == "link":
+        await process_image_link(client, None, user_id)
+    else:
+        await message.reply_text(get_welcome_layout(user_id, message.from_user.first_name), reply_markup=get_main_buttons(user_id))
 
 @bot.on_message(filters.text & filters.private)
 async def text_handler(client: Client, message: Message):
     user_id = message.from_user.id
     state = USER_DATA.get(user_id, {}).get("state", STATE_NONE)
 
+    # Directive 5: State untangling with try...finally
     if user_id == ADMIN_ID:
         if state == STATE_ADMIN_BROADCAST:
             try:
@@ -360,90 +455,201 @@ async def text_handler(client: Client, message: Message):
                 await status.edit_text(f"✅ **Broadcast Done!** Sent to `{count}` users.")
             except Exception as e:
                 await message.reply_text(f"❌ Broadcast Failed: {e}")
-            USER_DATA[user_id]["state"] = STATE_NONE
+            finally:
+                USER_DATA[user_id]["state"] = STATE_NONE
+            return
 
         elif state == STATE_ADMIN_BAN:
             try:
-                db.reference(f"banned/{message.text}").set(True)
-                await message.reply_text(f"🚫 User `{message.text}` Banned.")
-            except Exception as e: await message.reply_text(f"❌ Ban Failed: {e}")
-            USER_DATA[user_id]["state"] = STATE_NONE
+                db.reference(f"banned/{message.text.strip()}").set(True)
+                await message.reply_text(f"🚫 User `{message.text.strip()}` Banned.")
+            except Exception as e:
+                await message.reply_text(f"❌ Ban Failed: {e}")
+            finally:
+                USER_DATA[user_id]["state"] = STATE_NONE
+            return
 
         elif state == STATE_ADMIN_UNBAN:
             try:
-                db.reference(f"banned/{message.text}").delete()
-                await message.reply_text(f"✅ User `{message.text}` Unbanned.")
-            except Exception as e: await message.reply_text(f"❌ Unban Failed: {e}")
-            USER_DATA[user_id]["state"] = STATE_NONE
+                db.reference(f"banned/{message.text.strip()}").delete()
+                await message.reply_text(f"✅ User `{message.text.strip()}` Unbanned.")
+            except Exception as e:
+                await message.reply_text(f"❌ Unban Failed: {e}")
+            finally:
+                USER_DATA[user_id]["state"] = STATE_NONE
+            return
 
     if state == STATE_WAITING_RESIZE_CUSTOM:
         try:
-            w, h = map(int, message.text.split())
-            await process_image_resize(client, message, user_id, w, h)
+            parts = message.text.strip().split()
+            if len(parts) != 2:
+                raise ValueError("Expected two dimensions")
+            w, h = int(parts[0]), int(parts[1])
+            if w <= 0 or h <= 0:
+                raise ValueError("Dimensions must be positive")
+            await process_image_resize(client, None, user_id, w, h)
             USER_DATA[user_id]["state"] = STATE_NONE
         except ValueError: 
-            await message.reply_text("⚠️ **Invalid Format!** Please send valid numbers in 'Width Height' format (e.g., 1280 720).")
+            await message.reply_text("⚠️ **Invalid Format!** Please send valid numbers in 'Width Height' format (e.g., `1280 720`).")
         except Exception as e: 
             await message.reply_text(f"❌ Error: {e}")
+            USER_DATA[user_id]["state"] = STATE_NONE
 
-# --- CORE LOGIC ---
+# --- CORE PROCESSING LOGIC ---
 
-async def process_image_resize(client, msg, user_id, w, h):
-    path = USER_DATA[user_id]["source"]
+async def process_image_resize(client: Client, msg: Message, user_id: int, w: int, h: int):
+    path = USER_DATA.get(user_id, {}).get("source")
+    if not path or not os.path.exists(path):
+        await client.send_message(user_id, "❌ No active image found.")
+        return
+
     out = f"res_{user_id}.png"
-    status = await client.send_message(user_id, "⚙️ **Processing Resize...**")
+    status = None
+    if msg:
+        try: await msg.edit_text("⚙️ **Processing Resize...**")
+        except: status = await client.send_message(user_id, "⚙️ **Processing Resize...**")
+    else:
+        status = await client.send_message(user_id, "⚙️ **Processing Resize...**")
+
     try:
         with Image.open(path) as img:
             img.resize((w, h), Image.Resampling.LANCZOS).save(out)
+        
+        # Directive 2: Delete old menu / status before sending media
+        if msg:
+            try: await msg.delete()
+            except: pass
+        if status:
+            try: await status.delete()
+            except: pass
+            
         await send_processed_file(client, user_id, out, f"Resized to {w}x{h}")
+    except Exception as e:
+        logger.error(f"Resize Error: {e}")
+        await client.send_message(user_id, f"❌ Failed to resize image: {e}")
     finally:
-        try: await status.delete()
-        except: pass
-        if os.path.exists(out): os.remove(out)
+        if os.path.exists(out):
+            os.remove(out)
 
-async def process_image_compress(client, msg, user_id, qual):
-    path = USER_DATA[user_id]["source"]
+async def process_image_compress(client: Client, msg: Message, user_id: int, qual: int):
+    path = USER_DATA.get(user_id, {}).get("source")
+    if not path or not os.path.exists(path):
+        await client.send_message(user_id, "❌ No active image found.")
+        return
+
     out = f"comp_{user_id}.jpg"
-    status = await client.send_message(user_id, "⚙️ **Compressing Image...**")
+    status = None
+    if msg:
+        try: await msg.edit_text("⚙️ **Compressing Image...**")
+        except: status = await client.send_message(user_id, "⚙️ **Compressing Image...**")
+    else:
+        status = await client.send_message(user_id, "⚙️ **Compressing Image...**")
+
     try:
         with Image.open(path) as img:
             img.convert("RGB").save(out, "JPEG", quality=qual, optimize=True)
+            
+        # Directive 2: Delete old menu / status before sending media
+        if msg:
+            try: await msg.delete()
+            except: pass
+        if status:
+            try: await status.delete()
+            except: pass
+            
         await send_processed_file(client, user_id, out, f"Compressed (Quality: {qual}%)")
+    except Exception as e:
+        logger.error(f"Compress Error: {e}")
+        await client.send_message(user_id, f"❌ Failed to compress image: {e}")
     finally:
-        try: await status.delete()
-        except: pass
-        if os.path.exists(out): os.remove(out)
+        if os.path.exists(out):
+            os.remove(out)
 
-async def process_image_convert(client, msg, user_id, fmt):
-    path = USER_DATA[user_id]["source"]
+async def process_image_convert(client: Client, msg: Message, user_id: int, fmt: str):
+    path = USER_DATA.get(user_id, {}).get("source")
+    if not path or not os.path.exists(path):
+        await client.send_message(user_id, "❌ No active image found.")
+        return
+
     out = f"conv_{user_id}.{fmt}"
-    status = await client.send_message(user_id, f"⚙️ **Converting to {fmt.upper()}...**")
+    status = None
+    if msg:
+        try: await msg.edit_text(f"⚙️ **Converting to {fmt.upper()}...**")
+        except: status = await client.send_message(user_id, f"⚙️ **Converting to {fmt.upper()}...**")
+    else:
+        status = await client.send_message(user_id, f"⚙️ **Converting to {fmt.upper()}...**")
+
     try:
         with Image.open(path) as img:
-            if fmt in ["jpg", "jpeg"]: img = img.convert("RGB")
+            if fmt in ["jpg", "jpeg"]:
+                img = img.convert("RGB")
             img.save(out)
+            
+        # Directive 2: Delete old menu / status before sending media
+        if msg:
+            try: await msg.delete()
+            except: pass
+        if status:
+            try: await status.delete()
+            except: pass
+            
         await send_processed_file(client, user_id, out, f"Format: {fmt.upper()}")
+    except Exception as e:
+        logger.error(f"Convert Error: {e}")
+        await client.send_message(user_id, f"❌ Failed to convert image: {e}")
     finally:
-        try: await status.delete()
-        except: pass
-        if os.path.exists(out): os.remove(out)
+        if os.path.exists(out):
+            os.remove(out)
 
-async def process_image_pdf(client, msg, user_id):
-    path = USER_DATA[user_id]["source"]
+async def process_image_pdf(client: Client, msg: Message, user_id: int):
+    path = USER_DATA.get(user_id, {}).get("source")
+    if not path or not os.path.exists(path):
+        await client.send_message(user_id, "❌ No active image found.")
+        return
+
     out = f"doc_{user_id}.pdf"
-    status = await client.send_message(user_id, "⚙️ **Creating PDF...**")
+    status = None
+    if msg:
+        try: await msg.edit_text("⚙️ **Creating PDF...**")
+        except: status = await client.send_message(user_id, "⚙️ **Creating PDF...**")
+    else:
+        status = await client.send_message(user_id, "⚙️ **Creating PDF...**")
+
     try:
         with Image.open(path) as img:
             img.convert("RGB").save(out, "PDF")
+            
+        # Directive 2: Delete old menu / status before sending media
+        if msg:
+            try: await msg.delete()
+            except: pass
+        if status:
+            try: await status.delete()
+            except: pass
+            
         await send_processed_file(client, user_id, out, "PDF Generated")
+    except Exception as e:
+        logger.error(f"PDF Error: {e}")
+        await client.send_message(user_id, f"❌ Failed to generate PDF: {e}")
     finally:
-        try: await status.delete()
-        except: pass
-        if os.path.exists(out): os.remove(out)
+        if os.path.exists(out):
+            os.remove(out)
 
-async def process_image_link(client, msg, user_id):
-    """Requirement 1: Bulletproof Base64 ImgBB Upload"""
-    path = USER_DATA[user_id]["source"]
+async def process_image_link(client: Client, msg: Message, user_id: int):
+    """Directive 1: Physical file read and Base64 Form Data upload."""
+    path = USER_DATA.get(user_id, {}).get("source")
+    if not path or not os.path.exists(path):
+        await client.send_message(user_id, "❌ No active image found. Please upload an image first.")
+        return
+
+    if not IMGBB_API_KEY:
+        await client.send_message(user_id, "❌ ImgBB API Key is missing in environment variables.")
+        return
+
+    if msg:
+        try: await msg.delete()
+        except: pass
+
     status = await client.send_message(user_id, "📤 **Generating Public Link...**")
     try:
         with open(path, "rb") as img_file:
@@ -456,18 +662,22 @@ async def process_image_link(client, msg, user_id):
             
             async with sess.post("https://api.imgbb.com/1/upload", data=data) as resp:
                 res = await resp.json()
-                url = res["data"]["url"]
-                
-                out_info = get_file_info(path)
-                caption = f"✅ **Public Link Generated!**\n\n{out_info}\n\n🔗 `{url}`"
-                
-                btns = get_main_buttons(user_id).inline_keyboard
-                btns.insert(0, [InlineKeyboardButton("🔗 Open Cloud Link", url=url)])
-                
-                await client.send_message(user_id, caption, reply_markup=InlineKeyboardMarkup(btns))
+                if resp.status == 200 and res.get("success"):
+                    url = res["data"]["url"]
+                    out_info = get_file_info(path)
+                    caption = f"✅ **Public Link Generated!**\n\n{out_info}\n\n🔗 `{url}`"
+                    
+                    btns = get_main_buttons(user_id).inline_keyboard.copy()
+                    btns.insert(0, [InlineKeyboardButton("🔗 Open Cloud Link", url=url)])
+                    
+                    await client.send_message(user_id, caption, reply_markup=InlineKeyboardMarkup(btns))
+                else:
+                    err_msg = res.get("error", {}).get("message", "Unknown error")
+                    logger.error(f"ImgBB API Error: {err_msg}")
+                    await client.send_message(user_id, f"❌ ImgBB Upload Failed: {err_msg}")
     except Exception as e:
         logger.error(f"ImgBB Error: {e}")
-        await client.send_message(user_id, "❌ ImgBB Upload Failed.")
+        await client.send_message(user_id, "❌ ImgBB Upload Failed. Check API Key or Network.")
     finally: 
         try: await status.delete()
         except: pass
