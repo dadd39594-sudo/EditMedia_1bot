@@ -10,10 +10,11 @@ loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 # --------------------------------------
 
+import aiohttp
+from aiohttp import web
 from pyrogram import Client, filters, idle, errors
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery
 from pyrogram.errors import UserNotParticipant
-from aiohttp import web
 from PIL import Image
 import firebase_admin
 from firebase_admin import credentials, db
@@ -100,7 +101,6 @@ async def get_force_sub_markup():
     buttons.append([InlineKeyboardButton("🔄 Check Subscription", callback_data="go_home")])
     return InlineKeyboardMarkup(buttons)
 
-# Directive 2: Upgraded Pro Welcome Message Layout
 def get_welcome_layout(user_id, first_name):
     source = USER_DATA.get(user_id, {}).get("source")
     text = f"✨ **Welcome to EditMedia Pro, {first_name}!** 👑\n\nYour ultimate, high-speed media processing assistant."
@@ -111,7 +111,6 @@ def get_welcome_layout(user_id, first_name):
         text += "\n\n💡 _No active image loaded. Click 'Edit Media' or upload a photo to start!_"
     return text
 
-# Directive 2: Main Menu Inline Buttons
 def get_main_buttons(user_id):
     has_photo = USER_DATA.get(user_id, {}).get("source") is not None
     btns = [
@@ -127,7 +126,6 @@ def get_main_buttons(user_id):
         btns.append([InlineKeyboardButton("⚙️ Admin Dashboard", callback_data="admin_main")])
     return InlineKeyboardMarkup(btns)
 
-# Directive 2: Edit Media Sub-Menu Buttons
 def get_edit_media_buttons():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📐 Resize", callback_data="op_resize"), InlineKeyboardButton("🗜️ Compress", callback_data="op_compress")],
@@ -194,6 +192,14 @@ async def start_cmd(client: Client, message: Message):
     if await is_banned(user_id):
         return
     
+    # BUG 2 FIX: Immediately clear any stuck states while preserving loaded image if present
+    source = USER_DATA.get(user_id, {}).get("source")
+    is_doc = USER_DATA.get(user_id, {}).get("is_doc", False)
+    USER_DATA[user_id] = {"state": STATE_NONE, "action": None}
+    if source and os.path.exists(source):
+        USER_DATA[user_id]["source"] = source
+        USER_DATA[user_id]["is_doc"] = is_doc
+
     try:
         if firebase_admin._apps:
             db_ref = db.reference(f"users/{user_id}")
@@ -232,7 +238,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
         USER_DATA[user_id]["action"] = None
         return await safe_edit(query, get_welcome_layout(user_id, query.from_user.first_name), get_main_buttons(user_id))
 
-    # Directive 2: Sub-Menu Workshop
+    # Sub-Menu Workshop
     if data == "menu_edit_media":
         text = "🛠️ **Media Editing Workshop**\n\nSelect a powerful tool below to process your active image:"
         return await safe_edit(query, text, get_edit_media_buttons())
@@ -476,7 +482,7 @@ async def media_handler(client: Client, message: Message):
     else:
         await message.reply_text(get_welcome_layout(user_id, message.from_user.first_name), reply_markup=get_main_buttons(user_id))
 
-# Directive 3: State Management & Broadcast Crash Prevention
+# BUG 2 FIX: Protected State Management and Broadcast Crash Prevention
 @bot.on_message(filters.text & filters.private)
 async def text_handler(client: Client, message: Message):
     user_id = message.from_user.id
@@ -496,7 +502,14 @@ async def text_handler(client: Client, message: Message):
         if state == STATE_ADMIN_BROADCAST:
             status = None
             try:
-                users = db.reference("users").get()
+                users = None
+                try:
+                    if firebase_admin._apps:
+                        users = db.reference("users").get()
+                except Exception as db_err:
+                    logger.error(f"Database error during broadcast: {db_err}")
+                    raise Exception(f"Database error ({db_err})")
+
                 if not users:
                     raise Exception("No users found in database.")
 
@@ -534,7 +547,8 @@ async def text_handler(client: Client, message: Message):
         elif state == STATE_ADMIN_BAN:
             try:
                 target_id = message.text.strip()
-                db.reference(f"banned/{target_id}").set(True)
+                if firebase_admin._apps:
+                    db.reference(f"banned/{target_id}").set(True)
                 await message.reply_text(f"🚫 User `{target_id}` has been Banned.")
             except Exception as e:
                 logger.error(f"Ban Error: {e}")
@@ -546,7 +560,8 @@ async def text_handler(client: Client, message: Message):
         elif state == STATE_ADMIN_UNBAN:
             try:
                 target_id = message.text.strip()
-                db.reference(f"banned/{target_id}").delete()
+                if firebase_admin._apps:
+                    db.reference(f"banned/{target_id}").delete()
                 await message.reply_text(f"✅ User `{target_id}` has been Unbanned.")
             except Exception as e:
                 logger.error(f"Unban Error: {e}")
@@ -734,8 +749,10 @@ async def process_image_pdf(client: Client, msg: Message, user_id: int):
         if os.path.exists(out):
             os.remove(out)
 
-# Directive 1: Catbox.moe Cloud Link Upload Logic (Strictly Preserved)
+# BUG 1 FIX: Global import present and Catbox cloud upload preserved
 async def process_image_link(client: Client, msg: Message, user_id: int):
+    import aiohttp
+    
     path = USER_DATA.get(user_id, {}).get("source")
     if not path or not os.path.exists(path):
         await client.send_message(user_id, "❌ No active image found. Please upload an image first.")
