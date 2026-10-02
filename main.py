@@ -638,7 +638,6 @@ async def process_image_pdf(client: Client, msg: Message, user_id: int):
 async def process_image_link(client: Client, msg: Message, user_id: int):
     import aiohttp
     import os
-    from PIL import Image
     
     path = USER_DATA.get(user_id, {}).get("source")
     if not path or not os.path.exists(path):
@@ -650,44 +649,34 @@ async def process_image_link(client: Client, msg: Message, user_id: int):
         except: pass
 
     status = await client.send_message(user_id, "📤 **Generating Public Link...**")
-    upload_path = f"temp_tg_{user_id}.jpg"
     
     try:
-        # ১. জোর করে ১০০% খাঁটি JPEG বানানো হলো
-        with Image.open(path) as img:
-            img.convert("RGB").save(upload_path, "JPEG")
-            
-        # ২. সেই খাঁটি JPEG-এর ডেটা রিড করা হলো
-        with open(upload_path, "rb") as f:
-            file_bytes = f.read()
-            
+        # ImgBB এবং Telegraph-এর আইপি ব্লকের ঝামেলা এড়াতে Catbox.moe ব্যবহার করা হচ্ছে
         async with aiohttp.ClientSession() as sess:
-            # ৩. প্যাকেটের গায়ে কড়া লেবেল (FormData) লাগানো হলো
-            form = aiohttp.FormData()
-            form.add_field('file', file_bytes, filename="image.jpg", content_type="image/jpeg")
-            
-            async with sess.post("https://telegra.ph/upload", data=form) as resp:
-                res = await resp.json()
-                if isinstance(res, list) and "src" in res[0]:
-                    url = "https://telegra.ph" + res[0]["src"]
-                    out_info = get_file_info(path)
-                    caption = f"✅ **Public Link Generated!**\n\n{out_info}\n\n🔗 `{url}`"
+            with open(path, "rb") as f:
+                form = aiohttp.FormData()
+                form.add_field("reqtype", "fileupload")
+                form.add_field("fileToUpload", f)
+                
+                async with sess.post("https://catbox.moe/user/api.php", data=form) as resp:
+                    res_text = await resp.text()
                     
-                    btns = get_main_buttons(user_id).inline_keyboard.copy()
-                    btns.insert(0, [InlineKeyboardButton("🔗 Open Cloud Link", url=url)])
-                    
-                    await client.send_message(user_id, caption, reply_markup=InlineKeyboardMarkup(btns))
-                else:
-                    error_msg = res.get('error', 'Unknown Error') if isinstance(res, dict) else "Format Error"
-                    await client.send_message(user_id, f"❌ Link Generation Failed: {error_msg}")
+                    # Catbox সফল হলে সরাসরি "https://..." লিংক টেক্সট হিসেবে রিটার্ন করে
+                    if resp.status == 200 and res_text.startswith("https://"):
+                        url = res_text.strip()
+                        out_info = get_file_info(path)
+                        caption = f"✅ **Public Link Generated!**\n\n{out_info}\n\n🔗 `{url}`"
+                        
+                        btns = get_main_buttons(user_id).inline_keyboard.copy()
+                        btns.insert(0, [InlineKeyboardButton("🔗 Open Cloud Link", url=url)])
+                        
+                        await client.send_message(user_id, caption, reply_markup=InlineKeyboardMarkup(btns))
+                    else:
+                        await client.send_message(user_id, f"❌ Link Generation Failed: {res_text[:50]}")
     except Exception as e:
-        logger.error(f"Telegraph Error: {e}")
+        logger.error(f"Catbox Error: {e}")
         await client.send_message(user_id, f"❌ Server Connection Failed. (Error: {str(e)})")
     finally: 
-        # প্রসেস শেষে টেম্পোরারি ফাইল ডিলিট
-        if os.path.exists(upload_path):
-            try: os.remove(upload_path)
-            except: pass
         try: await status.delete()
         except: pass
             
