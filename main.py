@@ -467,7 +467,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
             return await client.send_message(user_id, get_welcome_layout(user_id, query.from_user.first_name), reply_markup=get_main_buttons(user_id))
         return await safe_edit(query, get_welcome_layout(user_id, query.from_user.first_name), get_main_buttons(user_id))
 
-    # Start Editing restores from Firebase immediately if exists
+    # Start Editing: Restores file from Firebase immediately if exists
     if data == "menu_edit_media":
         session = get_session(user_id)
         if session and session.get("file_history"):
@@ -683,7 +683,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
             "📜 <b>Rules & Information</b>\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
             "1️⃣ <b>Max File Size:</b> Up to 20MB per file.\n"
-            "2️⃣ <b>Sticker Prevention:</b> WEBP & PDF files are automatically handled as documents to prevent unwanted sticker conversions.\n"
+            "2️⃣ <b>Sticker Prevention:</b> WEBP & PDF files are automatically handled as documents to protect transparency and prevent unwanted sticker conversions.\n"
             "3️⃣ <b>Credit Policy:</b> Each media transformation consumes 🪙 1 Credit. Earn 🪙 5 Credits for every friend who joins using your referral link.\n"
             "4️⃣ <b>Undo/Redo:</b> Every transformation is tracked in Firebase history. Navigate versions freely without losing progress!\n"
             "━━━━━━━━━━━━━━━━━━━━"
@@ -848,7 +848,7 @@ async def media_handler(client: Client, message: Message):
         except Exception:
             pass
 
-    # 4. Initialize session in Firebase (Step 0)
+    # 4. Overwrite and initialize new session in Firebase ONLY NOW that a new file is uploaded
     initial_file = {
         "file_id": file_id,
         "details": details,
@@ -1116,7 +1116,7 @@ async def process_image_resize(client: Client, msg: Message, user_id: int, w: in
 
     try:
         with Image.open(local_input) as img:
-            orig_fmt = str(img.format).upper() if img.format else active_file.get("format", "PNG").upper()
+            orig_fmt = str(active_file.get("format", "PNG")).upper()
             
             if orig_fmt in ["JPG", "JPEG"]:
                 out_ext = "jpg"
@@ -1158,7 +1158,7 @@ async def process_image_resize(client: Client, msg: Message, user_id: int, w: in
                 except Exception:
                     pass
 
-# FIX 2 & 4: Smart format-preserving compression (PNG adaptive quantization, WEBP/JPEG preservation)
+# FIX 2 & 4: Strict format-preserving compression (reads active_file format, PNG adaptive quantization)
 async def process_image_compress(client: Client, msg: Message, user_id: int, qual: int):
     active_file = get_current_active_file(user_id)
     if not active_file:
@@ -1182,7 +1182,8 @@ async def process_image_compress(client: Client, msg: Message, user_id: int, qua
 
     try:
         with Image.open(local_input) as img:
-            orig_fmt = str(img.format).upper() if img.format else active_file.get("format", "JPEG").upper()
+            # FIX 2: Strictly read format from active_file, ignore unreliable img.format
+            orig_fmt = str(active_file.get("format", "JPEG")).upper()
             
             if orig_fmt == "PNG":
                 out_ext = "png"
@@ -1256,8 +1257,12 @@ async def process_image_convert(client: Client, msg: Message, user_id: int, fmt:
                     img = img.convert("RGB")
                 img.save(out, format="JPEG", quality=90, optimize=True)
             elif target_fmt == "png":
-                # Optimize PNG saving to prevent file size bloat
-                img.save(out, format="PNG", optimize=True)
+                # FIX 3: Prevent PNG size bloat using adaptive palette conversion & optimization
+                if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+                    conv_img = img.quantize(colors=256, method=Image.Quantize.FASTOCTREE)
+                else:
+                    conv_img = img.convert('P', palette=Image.ADAPTIVE, colors=256)
+                conv_img.save(out, format="PNG", optimize=True)
             elif target_fmt == "webp":
                 img.save(out, format="WEBP", quality=90, method=6)
             else:
@@ -1353,10 +1358,8 @@ async def process_image_pdf(client: Client, msg: Message, user_id: int):
     finally:
         USER_STATES[user_id]["active_task"] = None
 
-# REPLACED CATBOX WITH HIGH-SPEED PIXELDRAIN API & STRICT TIMEOUT
+# FIX 1: HIGH-SPEED TMPFILES.ORG CLOUD LINK GENERATOR (NO IP BLOCKING)
 async def process_image_link(client: Client, msg: Message, user_id: int):
-    import aiohttp
-
     active_file = get_current_active_file(user_id)
     if not active_file:
         await client.send_message(user_id, "❌ <b>No active image found. Please upload an image first.</b>")
@@ -1382,7 +1385,7 @@ async def process_image_link(client: Client, msg: Message, user_id: int):
         f"▫️ <b>Format:</b> <code>{active_file.get('format')}</code>\n"
         f"▫️ <b>Size:</b> <code>{active_file.get('size')}</code>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "⏳ <i>Uploading to Pixeldrain cloud storage...</i>"
+        "⏳ <i>Uploading to cloud storage...</i>"
     )
 
     await safe_edit_caption_or_text(msg, status_text, reply_markup=cancel_markup)
@@ -1390,43 +1393,45 @@ async def process_image_link(client: Client, msg: Message, user_id: int):
     async def _upload_task():
         local_path = await client.download_media(active_file["file_id"], in_memory=False)
         try:
-            # 20-second strict timeout for fast failure detection
+            # 20-second strict timeout for fast execution
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as sess:
                 with open(local_path, "rb") as f:
                     form = aiohttp.FormData()
                     filename = os.path.basename(local_path)
                     form.add_field("file", f, filename=filename)
 
-                    async with sess.post("https://pixeldrain.com/api/file", data=form) as resp:
+                    async with sess.post("https://tmpfiles.org/api/v1/upload", data=form) as resp:
                         if resp.status in (200, 201):
                             res_json = await resp.json()
-                            file_id = res_json.get("id")
-                            if file_id:
-                                url = f"https://pixeldrain.com/u/{file_id}"
-                                deduct_user_credit(user_id)
-                                caption = (
-                                    "✅ <b>Cloud Link Generated!</b> 🔗\n"
-                                    "━━━━━━━━━━━━━━━━━━━━\n"
-                                    "📁 <b>Active File Details:</b>\n"
-                                    f"▫️ <b>Resolution/Name:</b> <code>{active_file.get('details')}</code>\n"
-                                    f"▫️ <b>Format:</b> <code>{active_file.get('format')}</code>\n"
-                                    f"▫️ <b>Size:</b> <code>{active_file.get('size')}</code>\n"
-                                    "━━━━━━━━━━━━━━━━━━━━\n"
-                                    f"🔗 <b>Public Link:</b> <code>{url}</code>"
-                                )
-                                session = get_session(user_id) or {}
-                                step = session.get("current_step", 0)
-                                tot = len(session.get("file_history", [1]))
-                                btns = [
-                                    [InlineKeyboardButton("🔗 Open Cloud Link", url=url)],
-                                    [InlineKeyboardButton("📐 Resize", callback_data="op_resize"), InlineKeyboardButton("🗜️ Compress", callback_data="op_compress")],
-                                    [InlineKeyboardButton("✂️ Format Converter", callback_data="op_convert"), InlineKeyboardButton("📄 Image ➔ PDF", callback_data="op_pdf")],
-                                    [InlineKeyboardButton("🎨 Edit Another File", callback_data="ask_photo"), InlineKeyboardButton("« Main Menu", callback_data="go_home")]
-                                ]
-                                await safe_edit_caption_or_text(msg, caption, reply_markup=InlineKeyboardMarkup(btns))
-                                return
+                            if res_json.get("status") == "success" and "data" in res_json:
+                                original_url = res_json["data"].get("url")
+                                if original_url:
+                                    # Convert to direct download link by inserting /dl/
+                                    direct_url = original_url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
+                                    deduct_user_credit(user_id)
+                                    caption = (
+                                        "✅ <b>Cloud Link Generated!</b> 🔗\n"
+                                        "━━━━━━━━━━━━━━━━━━━━\n"
+                                        "📁 <b>Active File Details:</b>\n"
+                                        f"▫️ <b>Resolution/Name:</b> <code>{active_file.get('details')}</code>\n"
+                                        f"▫️ <b>Format:</b> <code>{active_file.get('format')}</code>\n"
+                                        f"▫️ <b>Size:</b> <code>{active_file.get('size')}</code>\n"
+                                        "━━━━━━━━━━━━━━━━━━━━\n"
+                                        f"🔗 <b>Direct Link:</b> <code>{direct_url}</code>"
+                                    )
+                                    session = get_session(user_id) or {}
+                                    step = session.get("current_step", 0)
+                                    tot = len(session.get("file_history", [1]))
+                                    btns = [
+                                        [InlineKeyboardButton("🔗 Open Direct Link", url=direct_url)],
+                                        [InlineKeyboardButton("📐 Resize", callback_data="op_resize"), InlineKeyboardButton("🗜️ Compress", callback_data="op_compress")],
+                                        [InlineKeyboardButton("✂️ Format Converter", callback_data="op_convert"), InlineKeyboardButton("📄 Image ➔ PDF", callback_data="op_pdf")],
+                                        [InlineKeyboardButton("🎨 Edit Another File", callback_data="ask_photo"), InlineKeyboardButton("« Main Menu", callback_data="go_home")]
+                                    ]
+                                    await safe_edit_caption_or_text(msg, caption, reply_markup=InlineKeyboardMarkup(btns))
+                                    return
 
-                        # Non-successful HTTP response
+                        # Non-successful upload
                         session = get_session(user_id) or {}
                         step = session.get("current_step", 0)
                         tot = len(session.get("file_history", [1]))
@@ -1447,7 +1452,7 @@ async def process_image_link(client: Client, msg: Message, user_id: int):
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            logger.error(f"Pixeldrain Error: {e}")
+            logger.error(f"tmpfiles.org upload error: {e}")
             session = get_session(user_id) or {}
             step = session.get("current_step", 0)
             tot = len(session.get("file_history", [1]))
