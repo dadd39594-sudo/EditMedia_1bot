@@ -2,6 +2,7 @@ import asyncio
 import os
 import json
 import logging
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 # --- CRITICAL: Python 3.14 Loop Fix ---
@@ -24,7 +25,7 @@ from pyrogram.types import (
 from pyrogram.errors import UserNotParticipant
 from PIL import Image
 import firebase_admin
-from firebase_admin import credentials, db
+from firebase_admin import credentials, db, storage
 
 # Logging Configuration
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -61,8 +62,12 @@ try:
         cert_dict = json.loads(FIREBASE_JSON)
         cred = credentials.Certificate(cert_dict)
         db_url = DATABASE_URL or cert_dict.get('databaseURL') or f"https://{cert_dict['project_id']}-default-rtdb.firebaseio.com/"
-        firebase_admin.initialize_app(cred, {'databaseURL': db_url})
-        logger.info(f"Firebase successfully initialized with URL: {db_url}")
+        storage_bucket = cert_dict.get('storageBucket') or f"{cert_dict['project_id']}.appspot.com"
+        firebase_admin.initialize_app(cred, {
+            'databaseURL': db_url,
+            'storageBucket': storage_bucket
+        })
+        logger.info(f"Firebase successfully initialized with DB: {db_url} and Storage: {storage_bucket}")
     else:
         logger.warning("FIREBASE_JSON missing. Database features will be disabled.")
 except Exception as e:
@@ -71,7 +76,6 @@ except Exception as e:
 # --- FIREBASE VERSION HISTORY & UNDO/REDO HELPERS ---
 
 def get_session(user_id: int) -> Optional[dict]:
-    """Retrieves the full session (history and step) from Firebase."""
     try:
         if firebase_admin._apps:
             return db.reference(f"users/{user_id}/session").get()
@@ -80,7 +84,6 @@ def get_session(user_id: int) -> Optional[dict]:
     return None
 
 def get_current_active_file(user_id: int) -> Optional[dict]:
-    """Gets the file data for the current step."""
     session = get_session(user_id)
     if session and "file_history" in session:
         history = session["file_history"]
@@ -90,7 +93,6 @@ def get_current_active_file(user_id: int) -> Optional[dict]:
     return None
 
 def set_new_session(user_id: int, file_dict: dict):
-    """Initializes a new session history for an uploaded file."""
     try:
         if firebase_admin._apps:
             db.reference(f"users/{user_id}/session").set({
@@ -101,7 +103,6 @@ def set_new_session(user_id: int, file_dict: dict):
         logger.error(f"Error creating session for {user_id}: {e}")
 
 def push_new_version(user_id: int, file_dict: dict) -> Tuple[int, int]:
-    """Truncates future redo steps and appends a new file version."""
     try:
         if firebase_admin._apps:
             ref = db.reference(f"users/{user_id}/session")
@@ -109,7 +110,6 @@ def push_new_version(user_id: int, file_dict: dict) -> Tuple[int, int]:
             history = session.get("file_history", [])
             current_step = session.get("current_step", len(history) - 1)
             
-            # Truncate redo history
             history = history[:current_step + 1]
             history.append(file_dict)
             new_step = len(history) - 1
@@ -124,7 +124,6 @@ def push_new_version(user_id: int, file_dict: dict) -> Tuple[int, int]:
     return 0, 1
 
 def step_undo(user_id: int) -> Optional[Tuple[dict, int, int]]:
-    """Steps backward in history."""
     try:
         if firebase_admin._apps:
             ref = db.reference(f"users/{user_id}/session")
@@ -141,7 +140,6 @@ def step_undo(user_id: int) -> Optional[Tuple[dict, int, int]]:
     return None
 
 def step_redo(user_id: int) -> Optional[Tuple[dict, int, int]]:
-    """Steps forward in history."""
     try:
         if firebase_admin._apps:
             ref = db.reference(f"users/{user_id}/session")
@@ -158,7 +156,6 @@ def step_redo(user_id: int) -> Optional[Tuple[dict, int, int]]:
     return None
 
 def clear_session(user_id: int):
-    """Completely deletes user's session history."""
     try:
         if firebase_admin._apps:
             db.reference(f"users/{user_id}/session").delete()
@@ -306,7 +303,10 @@ def get_main_buttons(user_id: int):
     ]
     if has_photo:
         btns.append([InlineKeyboardButton("🔄 Change Photo", callback_data="ask_photo")])
-    btns.append([InlineKeyboardButton("🎁 Refer & Earn", callback_data="show_referral")])
+    btns.append([
+        InlineKeyboardButton("🎁 Refer & Earn", callback_data="show_referral"),
+        InlineKeyboardButton("☁️ My Cloud Links", callback_data="ucloud_page_0")
+    ])
     btns.append([
         InlineKeyboardButton("🎧 Support", callback_data="show_support"),
         InlineKeyboardButton("📜 Rules & Info", callback_data="show_rules")
@@ -331,8 +331,6 @@ def get_loaded_caption(details: str, fmt: str, size: str, step: int = 0, total_s
 
 def get_workshop_buttons(current_step: int = 0, total_steps: int = 1):
     btns = []
-    
-    # Undo / Redo controls row
     history_row = []
     if current_step > 0:
         history_row.append(InlineKeyboardButton("↩️ Undo", callback_data="history_undo"))
@@ -395,7 +393,6 @@ async def start_cmd(client: Client, message: Message):
     
     USER_STATES[user_id] = {"state": STATE_NONE}
 
-    # Referral & Registration Logic
     try:
         if firebase_admin._apps:
             db_ref = db.reference(f"users/{user_id}")
@@ -456,7 +453,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
     
     data = query.data
 
-    # Main Menu: Keep session in Firebase intact
+    # Main Menu Navigation
     if data == "go_home":
         USER_STATES[user_id] = {"state": STATE_NONE}
         if query.message.photo or query.message.document:
@@ -467,7 +464,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
             return await client.send_message(user_id, get_welcome_layout(user_id, query.from_user.first_name), reply_markup=get_main_buttons(user_id))
         return await safe_edit(query, get_welcome_layout(user_id, query.from_user.first_name), get_main_buttons(user_id))
 
-    # Start Editing: Restores file from Firebase immediately if exists
+    # Workshop Restoration
     if data == "menu_edit_media":
         session = get_session(user_id)
         if session and session.get("file_history"):
@@ -517,7 +514,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
             )
             return await safe_edit(query, text, InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]]))
 
-    # Edit Another File: ONLY sets state to waiting, NEVER deletes active file/session prematurely
+    # Edit Another File Prompt
     if data == "ask_photo":
         USER_STATES[user_id] = {"state": STATE_WAITING_PHOTO, "prompt_msg_id": query.message.id}
         text = (
@@ -542,7 +539,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
             return
         return await safe_edit(query, text, InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]]))
 
-    # Undo History Action
+    # Undo History
     if data == "history_undo":
         undo_res = step_undo(user_id)
         if undo_res:
@@ -575,7 +572,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
         else:
             return await query.answer("No earlier steps to undo.", show_alert=True)
 
-    # Redo History Action
+    # Redo History
     if data == "history_redo":
         redo_res = step_redo(user_id)
         if redo_res:
@@ -608,7 +605,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
         else:
             return await query.answer("No steps to redo.", show_alert=True)
 
-    # Back to Workshop from a tool menu
+    # Back to Workshop
     if data == "menu_workshop_back":
         session = get_session(user_id)
         if not session or not session.get("file_history"):
@@ -625,7 +622,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
         )
         return await safe_edit_caption_or_text(query.message, caption, reply_markup=get_workshop_buttons(step, len(history)))
 
-    # Cancel ongoing async tasks
+    # Task Cancellation
     if data == "cancel_active_task":
         task = USER_STATES.get(user_id, {}).get("active_task")
         if task and not task.done():
@@ -641,6 +638,242 @@ async def callback_handler(client: Client, query: CallbackQuery):
                 caption = get_loaded_caption(active_file.get("details"), active_file.get("format"), active_file.get("size"), step, tot)
                 await safe_edit_caption_or_text(query.message, caption, reply_markup=get_workshop_buttons(step, tot))
         return
+
+    # --- USER CLOUD LINKS PANEL (DIRECTIVE 2) ---
+    if data.startswith("ucloud_page_"):
+        page = int(data.split("_")[2])
+        data_dict = {}
+        if firebase_admin._apps:
+            data_dict = db.reference(f"users/{user_id}/cloud_links").get() or {}
+        
+        items = list(data_dict.values())
+        items.sort(key=lambda x: x.get("date", ""), reverse=True)
+        
+        if not items:
+            text = (
+                "☁️ <b>My Cloud Links</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "<i>You haven't generated any cloud links yet!</i>\n"
+                "Use the 'Generate Cloud Link' tool in the workshop to host files."
+            )
+            return await safe_edit(query, text, InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]]))
+
+        PAGE_SIZE = 5
+        total_pages = max(1, (len(items) + PAGE_SIZE - 1) // PAGE_SIZE)
+        page = max(0, min(page, total_pages - 1))
+        page_items = items[page * PAGE_SIZE : (page + 1) * PAGE_SIZE]
+
+        btns = []
+        for item in page_items:
+            fname = item.get("filename", "File")
+            fmt = item.get("format", "FILE")
+            sz = item.get("size", "")
+            pid = item.get("push_id")
+            btns.append([InlineKeyboardButton(f"📁 {fmt} ({sz}) - {fname[:15]}", callback_data=f"ucloud_view_{pid}_{page}")])
+
+        nav_row = []
+        if page > 0:
+            nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"ucloud_page_{page - 1}"))
+        if page < total_pages - 1:
+            nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"ucloud_page_{page + 1}"))
+        if nav_row:
+            btns.append(nav_row)
+
+        btns.append([InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")])
+        text = f"☁️ <b>My Cloud Links</b> (Page {page + 1}/{total_pages})\n━━━━━━━━━━━━━━━━━━━━\nSelect a file below to view or manage:"
+        return await safe_edit(query, text, InlineKeyboardMarkup(btns))
+
+    if data.startswith("ucloud_view_"):
+        parts = data.split("_")
+        push_id, page = parts[2], int(parts[3])
+        meta = {}
+        if firebase_admin._apps:
+            meta = db.reference(f"users/{user_id}/cloud_links/{push_id}").get() or {}
+
+        if not meta:
+            await query.answer("File record no longer exists.", show_alert=True)
+            return await safe_edit(query, "File not found.", InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data=f"ucloud_page_{page}")]]))
+
+        text = (
+            "📁 <b>Cloud File Details</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"▫️ <b>Name:</b> <code>{meta.get('filename')}</code>\n"
+            f"▫️ <b>Format:</b> <code>{meta.get('format')}</code>\n"
+            f"▫️ <b>Size:</b> <code>{meta.get('size')}</code>\n"
+            f"▫️ <b>Date:</b> <code>{meta.get('date')}</code>\n\n"
+            f"🔗 <b>Public URL:</b>\n<code>{meta.get('public_url')}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━"
+        )
+        btns = [
+            [InlineKeyboardButton("🔗 Open Link", url=meta.get("public_url"))],
+            [InlineKeyboardButton("🗑️ Request Delete", callback_data=f"ucloud_reqdel_{push_id}_{page}")],
+            [InlineKeyboardButton("« Back to List", callback_data=f"ucloud_page_{page}")]
+        ]
+        return await safe_edit(query, text, InlineKeyboardMarkup(btns))
+
+    if data.startswith("ucloud_reqdel_"):
+        parts = data.split("_")
+        push_id, page = parts[2], int(parts[3])
+        meta = {}
+        if firebase_admin._apps:
+            meta = db.reference(f"users/{user_id}/cloud_links/{push_id}").get() or {}
+
+        text = (
+            "⏳ <b>Deletion Request Sent to Admin...</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Your deletion request has been queued. You can cancel if you change your mind."
+        )
+        btns = [
+            [InlineKeyboardButton("❌ Cancel Request", callback_data=f"ucloud_view_{push_id}_{page}")],
+            [InlineKeyboardButton("« Back to List", callback_data=f"ucloud_page_{page}")]
+        ]
+        await safe_edit(query, text, InlineKeyboardMarkup(btns))
+
+        # Notify Admin
+        if ADMIN_ID and meta:
+            admin_text = (
+                "⚠️ <b>New Cloud File Deletion Request!</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                f"👤 <b>User:</b> {meta.get('user_name', 'User')} (<code>{user_id}</code>)\n"
+                f"📁 <b>File:</b> <code>{meta.get('filename')}</code>\n"
+                f"▫️ <b>Format:</b> <code>{meta.get('format')}</code>\n"
+                f"▫️ <b>Size:</b> <code>{meta.get('size')}</code>\n"
+                f"▫️ <b>Date:</b> <code>{meta.get('date')}</code>\n\n"
+                f"🔗 <b>Link:</b> {meta.get('public_url')}\n"
+                "━━━━━━━━━━━━━━━━━━━━"
+            )
+            admin_markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔗 Open Link", url=meta.get("public_url"))],
+                [InlineKeyboardButton("🗑️ Approve & Delete", callback_data=f"adm_delfile_{push_id}")]
+            ])
+            try:
+                await client.send_message(ADMIN_ID, admin_text, reply_markup=admin_markup)
+            except Exception as e:
+                logger.error(f"Failed to notify admin of delete request: {e}")
+        return
+
+    # --- ADMIN CLOUD MANAGER PANEL (DIRECTIVE 3) ---
+    if data.startswith("acloud_page_") and user_id == ADMIN_ID:
+        page = int(data.split("_")[2])
+        data_dict = {}
+        if firebase_admin._apps:
+            data_dict = db.reference("admin_cloud_links").get() or {}
+
+        items = list(data_dict.values())
+        items.sort(key=lambda x: x.get("date", ""), reverse=True)
+
+        if not items:
+            text = (
+                "☁️ <b>Cloud Links Manager</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "<i>No cloud files found on server.</i>"
+            )
+            return await safe_edit(query, text, InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Dashboard", callback_data="admin_main")]]))
+
+        PAGE_SIZE = 5
+        total_pages = max(1, (len(items) + PAGE_SIZE - 1) // PAGE_SIZE)
+        page = max(0, min(page, total_pages - 1))
+        page_items = items[page * PAGE_SIZE : (page + 1) * PAGE_SIZE]
+
+        btns = []
+        for item in page_items:
+            uname = item.get("user_name", "User")
+            fmt = item.get("format", "FILE")
+            pid = item.get("push_id")
+            btns.append([InlineKeyboardButton(f"👤 {uname} - {fmt}", callback_data=f"acloud_view_{pid}_{page}")])
+
+        nav_row = []
+        if page > 0:
+            nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"acloud_page_{page - 1}"))
+        if page < total_pages - 1:
+            nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"acloud_page_{page + 1}"))
+        if nav_row:
+            btns.append(nav_row)
+
+        btns.append([InlineKeyboardButton("« Back to Dashboard", callback_data="admin_main")])
+        text = f"☁️ <b>Cloud Links Manager</b> (Page {page + 1}/{total_pages})\n━━━━━━━━━━━━━━━━━━━━\nSelect a user file below to inspect or remove:"
+        return await safe_edit(query, text, InlineKeyboardMarkup(btns))
+
+    if data.startswith("acloud_view_") and user_id == ADMIN_ID:
+        parts = data.split("_")
+        push_id, page = parts[2], int(parts[3])
+        meta = {}
+        if firebase_admin._apps:
+            meta = db.reference(f"admin_cloud_links/{push_id}").get() or {}
+
+        if not meta:
+            await query.answer("File record no longer exists.", show_alert=True)
+            return await safe_edit(query, "File not found.", InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data=f"acloud_page_{page}")]]))
+
+        text = (
+            "📁 <b>File Details:</b>\n"
+            f"▫️ <b>Name:</b> <code>{meta.get('filename')}</code>\n"
+            f"▫️ <b>Format:</b> <code>{meta.get('format')}</code>\n"
+            f"▫️ <b>Size:</b> <code>{meta.get('size')}</code>\n"
+            f"▫️ <b>Date:</b> <code>{meta.get('date')}</code>\n\n"
+            "👤 <b>User Details:</b>\n"
+            f"▫️ <b>Name:</b> <code>{meta.get('user_name')}</code>\n"
+            f"▫️ <b>ID:</b> <code>{meta.get('user_id')}</code>\n\n"
+            f"🔗 <b>Public Link:</b>\n<code>{meta.get('public_url')}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━"
+        )
+        btns = [
+            [InlineKeyboardButton("🔗 Open Link", url=meta.get("public_url"))],
+            [InlineKeyboardButton("🗑️ Delete File", callback_data=f"acloud_del_{push_id}_{page}")],
+            [InlineKeyboardButton("« Back to List", callback_data=f"acloud_page_{page}")]
+        ]
+        return await safe_edit(query, text, InlineKeyboardMarkup(btns))
+
+    # Admin Direct Delete or Delete Approval Execution
+    if (data.startswith("acloud_del_") or data.startswith("adm_delfile_")) and user_id == ADMIN_ID:
+        parts = data.split("_")
+        push_id = parts[2]
+        page = int(parts[3]) if len(parts) > 3 else 0
+
+        meta = {}
+        if firebase_admin._apps:
+            meta = db.reference(f"admin_cloud_links/{push_id}").get() or {}
+
+        if not meta:
+            return await safe_edit(query, "❌ <b>File record already deleted or not found.</b>", InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Cloud Manager", callback_data=f"acloud_page_{page}")]]))
+
+        storage_path = meta.get("storage_path")
+        owner_id = meta.get("user_id")
+
+        # Delete from Firebase Storage in thread
+        def delete_storage_blob():
+            if storage_path:
+                bucket = storage.bucket()
+                blob = bucket.blob(storage_path)
+                if blob.exists():
+                    blob.delete()
+
+        try:
+            await asyncio.to_thread(delete_storage_blob)
+        except Exception as e:
+            logger.error(f"Error deleting blob: {e}")
+
+        # Delete from DB
+        if firebase_admin._apps:
+            db.reference(f"admin_cloud_links/{push_id}").delete()
+            if owner_id:
+                db.reference(f"users/{owner_id}/cloud_links/{push_id}").delete()
+
+        # Notify Owner
+        if owner_id:
+            try:
+                await client.send_message(
+                    owner_id,
+                    f"🗑️ <b>Notice:</b> Your cloud file <code>{meta.get('filename')}</code> has been deleted from server storage."
+                )
+            except Exception:
+                pass
+
+        return await safe_edit(
+            query,
+            "✅ <b>File successfully deleted from server.</b>",
+            InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Cloud Manager", callback_data=f"acloud_page_{page}")]])
+        )
 
     # Refer & Earn
     if data == "show_referral":
@@ -685,12 +918,12 @@ async def callback_handler(client: Client, query: CallbackQuery):
             "1️⃣ <b>Max File Size:</b> Up to 20MB per file.\n"
             "2️⃣ <b>Sticker Prevention:</b> WEBP & PDF files are automatically handled as documents to protect transparency and prevent unwanted sticker conversions.\n"
             "3️⃣ <b>Credit Policy:</b> Each media transformation consumes 🪙 1 Credit. Earn 🪙 5 Credits for every friend who joins using your referral link.\n"
-            "4️⃣ <b>Undo/Redo:</b> Every transformation is tracked in Firebase history. Navigate versions freely without losing progress!\n"
+            "4️⃣ <b>Cloud Storage:</b> High-speed cloud hosting on dedicated Firebase infrastructure with instant link management.\n"
             "━━━━━━━━━━━━━━━━━━━━"
         )
         return await safe_edit(query, text, InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]]))
 
-    # Admin Dashboard
+    # Admin Dashboard Hub
     if data == "admin_main" and user_id == ADMIN_ID:
         USER_STATES[user_id] = {"state": STATE_NONE}
         count = "N/A"
@@ -707,6 +940,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
             [InlineKeyboardButton("📣 Broadcast Message", callback_data="admin_bc")],
             [InlineKeyboardButton("🚫 Ban User", callback_data="admin_ban"), InlineKeyboardButton("✅ Unban User", callback_data="admin_unban")],
             [InlineKeyboardButton("➕ Add Credits", callback_data="admin_add_credits"), InlineKeyboardButton("🔄 Reset Credits", callback_data="admin_reset_credits")],
+            [InlineKeyboardButton("☁️ Manage Cloud Links", callback_data="acloud_page_0")],
             [InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]
         ]
         return await safe_edit(query, text, InlineKeyboardMarkup(btns))
@@ -723,7 +957,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
         USER_STATES[user_id] = {"state": chosen_state}
         return await safe_edit(query, prompt_text, InlineKeyboardMarkup([[InlineKeyboardButton("Cancel", callback_data="admin_main")]]))
 
-    # Tools Navigation (Editing caption in place)
+    # Tools Navigation
     active_file = get_current_active_file(user_id)
     if data.startswith("op_") and not active_file:
         USER_STATES[user_id] = {"state": STATE_WAITING_PHOTO}
@@ -821,13 +1055,11 @@ async def media_handler(client: Client, message: Message):
     if await is_banned(user_id):
         return
     
-    # 1. Clean chat by deleting user's upload message
     try:
         await message.delete()
     except Exception:
         pass
 
-    # 2. Delete bot's previous prompt if tracked
     prompt_id = USER_STATES.get(user_id, {}).get("prompt_msg_id")
     if prompt_id:
         try:
@@ -838,7 +1070,6 @@ async def media_handler(client: Client, message: Message):
     is_doc = bool(message.document)
     file_id = message.document.file_id if is_doc else message.photo.file_id
 
-    # 3. Download temporarily to extract precise stats
     temp_path = await message.download()
     details, fmt, size = get_media_stats(temp_path)
     
@@ -848,7 +1079,6 @@ async def media_handler(client: Client, message: Message):
         except Exception:
             pass
 
-    # 4. Overwrite and initialize new session in Firebase ONLY NOW that a new file is uploaded
     initial_file = {
         "file_id": file_id,
         "details": details,
@@ -859,7 +1089,6 @@ async def media_handler(client: Client, message: Message):
     set_new_session(user_id, initial_file)
     USER_STATES[user_id] = {"state": STATE_NONE}
 
-    # 5. Send single response with workshop buttons
     caption = get_loaded_caption(details, fmt, size, 0, 1)
     buttons = get_workshop_buttons(0, 1)
 
@@ -896,7 +1125,6 @@ async def text_handler(client: Client, message: Message):
     if state == STATE_NONE:
         return
 
-    # --- ADMIN PRIVILEGED ACTIONS ---
     if user_id == ADMIN_ID:
         if state == STATE_ADMIN_BROADCAST:
             status = None
@@ -920,7 +1148,7 @@ async def text_handler(client: Client, message: Message):
                     try:
                         await message.copy(int(uid))
                         success_count += 1
-                        await asyncio.sleep(0.05)  # Flood-wait delay
+                        await asyncio.sleep(0.05)
                     except Exception as err:
                         failed_count += 1
                         logger.warning(f"Broadcast failed for user {uid}: {err}")
@@ -1004,7 +1232,6 @@ async def text_handler(client: Client, message: Message):
                 USER_STATES[user_id]["state"] = STATE_NONE
             return
 
-    # --- USER CUSTOM RESIZE ---
     if state == STATE_WAITING_RESIZE_CUSTOM:
         try:
             try:
@@ -1030,7 +1257,6 @@ async def text_handler(client: Client, message: Message):
 # --- CHAINED EDITING & PROCESSING ENGINES ---
 
 async def send_chained_success_file(client: Client, user_id: int, file_path: str, action_title: str):
-    """Sends new file, appends version to Firebase history, and renders Undo/Redo buttons."""
     deduct_user_credit(user_id)
     details, fmt, size = get_media_stats(file_path)
     is_doc = fmt.lower() in ["webp", "pdf"]
@@ -1081,18 +1307,15 @@ async def send_chained_success_file(client: Client, user_id: int, file_path: str
         )
         new_file_id = sent.photo.file_id
 
-    # Commit full version record
     temp_dict["file_id"] = new_file_id
     push_new_version(user_id, temp_dict)
 
-    # Local cleanup
     if os.path.exists(file_path):
         try:
             os.remove(file_path)
         except Exception:
             pass
 
-# FIX 2 & 4: Preserve format and optimize during resize
 async def process_image_resize(client: Client, msg: Message, user_id: int, w: int, h: int):
     active_file = get_current_active_file(user_id)
     if not active_file:
@@ -1158,7 +1381,6 @@ async def process_image_resize(client: Client, msg: Message, user_id: int, w: in
                 except Exception:
                     pass
 
-# FIX 2 & 4: Strict format-preserving compression (reads active_file format, PNG adaptive quantization)
 async def process_image_compress(client: Client, msg: Message, user_id: int, qual: int):
     active_file = get_current_active_file(user_id)
     if not active_file:
@@ -1182,7 +1404,6 @@ async def process_image_compress(client: Client, msg: Message, user_id: int, qua
 
     try:
         with Image.open(local_input) as img:
-            # FIX 2: Strictly read format from active_file, ignore unreliable img.format
             orig_fmt = str(active_file.get("format", "JPEG")).upper()
             
             if orig_fmt == "PNG":
@@ -1190,7 +1411,6 @@ async def process_image_compress(client: Client, msg: Message, user_id: int, qua
                 out = f"proc_{user_id}_{timestamp}.{out_ext}"
                 colors = 256 if qual >= 80 else (128 if qual >= 50 else 64)
                 
-                # Check for alpha channels to prevent losing transparency
                 if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
                     comp_img = img.quantize(colors=colors, method=Image.Quantize.FASTOCTREE)
                 else:
@@ -1202,7 +1422,7 @@ async def process_image_compress(client: Client, msg: Message, user_id: int, qua
                 out = f"proc_{user_id}_{timestamp}.{out_ext}"
                 img.save(out, format='WEBP', quality=qual, method=6)
 
-            else:  # JPEG or standard formats
+            else:
                 out_ext = "jpg"
                 out = f"proc_{user_id}_{timestamp}.{out_ext}"
                 if img.mode in ("RGBA", "P"):
@@ -1227,7 +1447,6 @@ async def process_image_compress(client: Client, msg: Message, user_id: int, qua
                 except Exception:
                     pass
 
-# FIX 3 & 4: Optimized format conversion (PNG size bloat minimization, format tracking)
 async def process_image_convert(client: Client, msg: Message, user_id: int, fmt: str):
     active_file = get_current_active_file(user_id)
     if not active_file:
@@ -1257,7 +1476,6 @@ async def process_image_convert(client: Client, msg: Message, user_id: int, fmt:
                     img = img.convert("RGB")
                 img.save(out, format="JPEG", quality=90, optimize=True)
             elif target_fmt == "png":
-                # FIX 3: Prevent PNG size bloat using adaptive palette conversion & optimization
                 if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
                     conv_img = img.quantize(colors=256, method=Image.Quantize.FASTOCTREE)
                 else:
@@ -1358,7 +1576,7 @@ async def process_image_pdf(client: Client, msg: Message, user_id: int):
     finally:
         USER_STATES[user_id]["active_task"] = None
 
-# FIX 1: HIGH-SPEED TMPFILES.ORG CLOUD LINK GENERATOR (NO IP BLOCKING)
+# --- DIRECTIVE 1: HIGH-SPEED FIREBASE STORAGE ENGINE ---
 async def process_image_link(client: Client, msg: Message, user_id: int):
     active_file = get_current_active_file(user_id)
     if not active_file:
@@ -1385,7 +1603,7 @@ async def process_image_link(client: Client, msg: Message, user_id: int):
         f"▫️ <b>Format:</b> <code>{active_file.get('format')}</code>\n"
         f"▫️ <b>Size:</b> <code>{active_file.get('size')}</code>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "⏳ <i>Uploading to cloud storage...</i>"
+        "⏳ <i>Uploading to Firebase Cloud Storage...</i>"
     )
 
     await safe_edit_caption_or_text(msg, status_text, reply_markup=cancel_markup)
@@ -1393,72 +1611,78 @@ async def process_image_link(client: Client, msg: Message, user_id: int):
     async def _upload_task():
         local_path = await client.download_media(active_file["file_id"], in_memory=False)
         try:
-            # 20-second strict timeout for fast execution
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as sess:
-                with open(local_path, "rb") as f:
-                    form = aiohttp.FormData()
-                    filename = os.path.basename(local_path)
-                    form.add_field("file", f, filename=filename)
+            ext = active_file.get("format", "jpg").lower()
+            if ext == "jpeg":
+                ext = "jpg"
+            timestamp = int(asyncio.get_event_loop().time())
+            filename = f"file_{timestamp}.{ext}"
+            storage_path = f"cloud_links/{user_id}/{filename}"
 
-                    async with sess.post("https://tmpfiles.org/api/v1/upload", data=form) as resp:
-                        if resp.status in (200, 201):
-                            res_json = await resp.json()
-                            if res_json.get("status") == "success" and "data" in res_json:
-                                original_url = res_json["data"].get("url")
-                                if original_url:
-                                    # Convert to direct download link by inserting /dl/
-                                    direct_url = original_url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
-                                    deduct_user_credit(user_id)
-                                    caption = (
-                                        "✅ <b>Cloud Link Generated!</b> 🔗\n"
-                                        "━━━━━━━━━━━━━━━━━━━━\n"
-                                        "📁 <b>Active File Details:</b>\n"
-                                        f"▫️ <b>Resolution/Name:</b> <code>{active_file.get('details')}</code>\n"
-                                        f"▫️ <b>Format:</b> <code>{active_file.get('format')}</code>\n"
-                                        f"▫️ <b>Size:</b> <code>{active_file.get('size')}</code>\n"
-                                        "━━━━━━━━━━━━━━━━━━━━\n"
-                                        f"🔗 <b>Direct Link:</b> <code>{direct_url}</code>"
-                                    )
-                                    session = get_session(user_id) or {}
-                                    step = session.get("current_step", 0)
-                                    tot = len(session.get("file_history", [1]))
-                                    btns = [
-                                        [InlineKeyboardButton("🔗 Open Direct Link", url=direct_url)],
-                                        [InlineKeyboardButton("📐 Resize", callback_data="op_resize"), InlineKeyboardButton("🗜️ Compress", callback_data="op_compress")],
-                                        [InlineKeyboardButton("✂️ Format Converter", callback_data="op_convert"), InlineKeyboardButton("📄 Image ➔ PDF", callback_data="op_pdf")],
-                                        [InlineKeyboardButton("🎨 Edit Another File", callback_data="ask_photo"), InlineKeyboardButton("« Main Menu", callback_data="go_home")]
-                                    ]
-                                    await safe_edit_caption_or_text(msg, caption, reply_markup=InlineKeyboardMarkup(btns))
-                                    return
+            def upload_to_storage():
+                bucket = storage.bucket()
+                blob = bucket.blob(storage_path)
+                blob.upload_from_filename(local_path)
+                blob.make_public()
+                return blob.public_url
 
-                        # Non-successful upload
-                        session = get_session(user_id) or {}
-                        step = session.get("current_step", 0)
-                        tot = len(session.get("file_history", [1]))
-                        await safe_edit_caption_or_text(
-                            msg,
-                            "❌ <b>Link Generation Failed: Server Error. Please try again.</b>",
-                            reply_markup=get_workshop_buttons(step, tot)
-                        )
-        except asyncio.TimeoutError:
-            session = get_session(user_id) or {}
-            step = session.get("current_step", 0)
-            tot = len(session.get("file_history", [1]))
-            await safe_edit_caption_or_text(
-                msg,
-                "❌ <b>Link Generation Failed: Server Timeout. Please try again.</b>",
-                reply_markup=get_workshop_buttons(step, tot)
+            public_url = await asyncio.to_thread(upload_to_storage)
+
+            # Record Metadata in Realtime Database
+            push_id = None
+            if firebase_admin._apps:
+                push_ref = db.reference(f"users/{user_id}/cloud_links").push()
+                push_id = push_ref.key
+                date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                user_name = "User"
+                try:
+                    user_obj = await client.get_users(user_id)
+                    user_name = user_obj.first_name or "User"
+                except Exception:
+                    pass
+
+                meta = {
+                    "push_id": push_id,
+                    "filename": filename,
+                    "format": active_file.get("format", ext.upper()),
+                    "size": active_file.get("size", "0 KB"),
+                    "date": date_str,
+                    "public_url": public_url,
+                    "user_id": user_id,
+                    "user_name": user_name,
+                    "storage_path": storage_path
+                }
+                push_ref.set(meta)
+                db.reference(f"admin_cloud_links/{push_id}").set(meta)
+
+            deduct_user_credit(user_id)
+            caption = (
+                "✅ <b>Cloud Link Generated!</b> 🔗\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "📁 <b>Active File Details:</b>\n"
+                f"▫️ <b>Resolution/Name:</b> <code>{active_file.get('details')}</code>\n"
+                f"▫️ <b>Format:</b> <code>{active_file.get('format')}</code>\n"
+                f"▫️ <b>Size:</b> <code>{active_file.get('size')}</code>\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                f"🔗 <b>Public Link:</b> <code>{public_url}</code>"
             )
+            btns = [
+                [InlineKeyboardButton("🔗 Open Cloud Link", url=public_url)],
+                [InlineKeyboardButton("📐 Resize", callback_data="op_resize"), InlineKeyboardButton("🗜️ Compress", callback_data="op_compress")],
+                [InlineKeyboardButton("✂️ Format Converter", callback_data="op_convert"), InlineKeyboardButton("📄 Image ➔ PDF", callback_data="op_pdf")],
+                [InlineKeyboardButton("🎨 Edit Another File", callback_data="ask_photo"), InlineKeyboardButton("« Main Menu", callback_data="go_home")]
+            ]
+            await safe_edit_caption_or_text(msg, caption, reply_markup=InlineKeyboardMarkup(btns))
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            logger.error(f"tmpfiles.org upload error: {e}")
+            logger.error(f"Firebase Storage Error: {e}")
             session = get_session(user_id) or {}
             step = session.get("current_step", 0)
             tot = len(session.get("file_history", [1]))
             await safe_edit_caption_or_text(
                 msg,
-                "❌ <b>Link Generation Failed: Server Error. Please try again.</b>",
+                f"❌ <b>Link Generation Failed:</b> {str(e)}",
                 reply_markup=get_workshop_buttons(step, tot)
             )
         finally:
