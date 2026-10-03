@@ -2,8 +2,7 @@ import asyncio
 import os
 import json
 import logging
-import base64
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 # --- CRITICAL: Python 3.14 Loop Fix ---
 loop = asyncio.new_event_loop()
@@ -14,7 +13,14 @@ import aiohttp
 from aiohttp import web
 from pyrogram import Client, filters, idle, errors
 from pyrogram.enums import ParseMode
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery
+from pyrogram.types import (
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    Message,
+    CallbackQuery,
+    InputMediaPhoto,
+    InputMediaDocument
+)
 from pyrogram.errors import UserNotParticipant
 from PIL import Image
 import firebase_admin
@@ -46,7 +52,7 @@ STATE_ADMIN_UNBAN = 5
 STATE_ADMIN_ADD_CREDIT = 6
 STATE_ADMIN_RESET_CREDIT = 7
 
-# Memory tracker only for transient user states and ongoing async tasks
+# Memory tracker for transient states and tasks
 USER_STATES: Dict[int, dict] = {}
 
 # --- FIREBASE SETUP ---
@@ -62,41 +68,106 @@ try:
 except Exception as e:
     logger.error(f"CRITICAL FIREBASE INIT ERROR: {e}")
 
-# --- FIREBASE DATA & ACTIVE FILE HELPERS ---
+# --- FIREBASE VERSION HISTORY & UNDO/REDO HELPERS ---
 
-def get_active_file(user_id: int) -> Optional[dict]:
-    """Retrieves the user's active file data directly from Firebase."""
+def get_session(user_id: int) -> Optional[dict]:
+    """Retrieves the full session (history and step) from Firebase."""
     try:
         if firebase_admin._apps:
-            return db.reference(f"users/{user_id}/active_file").get()
+            return db.reference(f"users/{user_id}/session").get()
     except Exception as e:
-        logger.error(f"Error fetching active file from Firebase: {e}")
+        logger.error(f"Error fetching session for {user_id}: {e}")
     return None
 
-def set_active_file(user_id: int, file_id: str, details: str, fmt: str, size: str, is_doc: bool):
-    """Saves the user's active file information to Firebase."""
+def get_current_active_file(user_id: int) -> Optional[dict]:
+    """Gets the file data for the current step."""
+    session = get_session(user_id)
+    if session and "file_history" in session:
+        history = session["file_history"]
+        step = session.get("current_step", 0)
+        if 0 <= step < len(history):
+            return history[step]
+    return None
+
+def set_new_session(user_id: int, file_dict: dict):
+    """Initializes a new session history for an uploaded file."""
     try:
         if firebase_admin._apps:
-            db.reference(f"users/{user_id}/active_file").set({
-                "file_id": file_id,
-                "details": details,
-                "format": fmt,
-                "size": size,
-                "is_doc": is_doc
+            db.reference(f"users/{user_id}/session").set({
+                "file_history": [file_dict],
+                "current_step": 0
             })
     except Exception as e:
-        logger.error(f"Error saving active file to Firebase: {e}")
+        logger.error(f"Error creating session for {user_id}: {e}")
 
-def delete_active_file(user_id: int):
-    """Clears the active file node from Firebase."""
+def push_new_version(user_id: int, file_dict: dict) -> Tuple[int, int]:
+    """Truncates future redo steps and appends a new file version."""
     try:
         if firebase_admin._apps:
-            db.reference(f"users/{user_id}/active_file").delete()
+            ref = db.reference(f"users/{user_id}/session")
+            session = ref.get() or {"file_history": [], "current_step": -1}
+            history = session.get("file_history", [])
+            current_step = session.get("current_step", len(history) - 1)
+            
+            # Truncate redo history
+            history = history[:current_step + 1]
+            history.append(file_dict)
+            new_step = len(history) - 1
+            
+            ref.set({
+                "file_history": history,
+                "current_step": new_step
+            })
+            return new_step, len(history)
     except Exception as e:
-        logger.error(f"Error deleting active file from Firebase: {e}")
+        logger.error(f"Error pushing version for {user_id}: {e}")
+    return 0, 1
+
+def step_undo(user_id: int) -> Optional[Tuple[dict, int, int]]:
+    """Steps backward in history."""
+    try:
+        if firebase_admin._apps:
+            ref = db.reference(f"users/{user_id}/session")
+            session = ref.get()
+            if session and "file_history" in session:
+                history = session["file_history"]
+                current_step = session.get("current_step", 0)
+                if current_step > 0:
+                    new_step = current_step - 1
+                    ref.update({"current_step": new_step})
+                    return history[new_step], new_step, len(history)
+    except Exception as e:
+        logger.error(f"Error during undo for {user_id}: {e}")
+    return None
+
+def step_redo(user_id: int) -> Optional[Tuple[dict, int, int]]:
+    """Steps forward in history."""
+    try:
+        if firebase_admin._apps:
+            ref = db.reference(f"users/{user_id}/session")
+            session = ref.get()
+            if session and "file_history" in session:
+                history = session["file_history"]
+                current_step = session.get("current_step", 0)
+                if current_step < len(history) - 1:
+                    new_step = current_step + 1
+                    ref.update({"current_step": new_step})
+                    return history[new_step], new_step, len(history)
+    except Exception as e:
+        logger.error(f"Error during redo for {user_id}: {e}")
+    return None
+
+def clear_session(user_id: int):
+    """Completely deletes user's session history."""
+    try:
+        if firebase_admin._apps:
+            db.reference(f"users/{user_id}/session").delete()
+    except Exception as e:
+        logger.error(f"Error clearing session for {user_id}: {e}")
+
+# --- USER CREDITS & HELPERS ---
 
 def get_user_credits_and_refs(user_id: int):
-    """Fetches user credit & referral counts from Firebase."""
     credits_val = 10
     referrals_val = 0
     try:
@@ -110,7 +181,6 @@ def get_user_credits_and_refs(user_id: int):
     return credits_val, referrals_val
 
 def deduct_user_credit(user_id: int) -> bool:
-    """Deducts 1 credit upon successful processing."""
     current_credits, _ = get_user_credits_and_refs(user_id)
     if current_credits < 1:
         return False
@@ -176,7 +246,6 @@ async def is_banned(user_id: int):
         return False
 
 def get_media_stats(path: str):
-    """Extracts resolution/name, format, and file size accurately from a local path."""
     if not path or not os.path.exists(path):
         return "N/A", "UNKNOWN", "0 KB"
     try:
@@ -200,23 +269,23 @@ async def get_force_sub_markup():
     buttons.append([InlineKeyboardButton("🔄 Check Subscription", callback_data="go_home")])
     return InlineKeyboardMarkup(buttons)
 
-# --- UI LAYOUTS & MENUS ---
+# --- UI LAYOUTS & KEYBOARDS ---
 
 def get_welcome_layout(user_id: int, first_name: str) -> str:
     credits_val, referrals_val = get_user_credits_and_refs(user_id)
-    active = get_active_file(user_id)
+    active = get_current_active_file(user_id)
     
     photo_block = ""
     if active:
         photo_block = (
             "🖼️ <b>Your Photo:</b>\n"
-            f"▫️ <b>Resolution:</b> <code>{active.get('details')}</code>\n"
+            f"▫️ <b>Resolution/Name:</b> <code>{active.get('details')}</code>\n"
             f"▫️ <b>Format:</b> <code>{active.get('format')}</code>\n"
             f"▫️ <b>Size:</b> <code>{active.get('size')}</code>\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
         )
 
-    text = (
+    return (
         f"✨ <b>Welcome to EditMedia Pro, {first_name}!</b> 👑\n\n"
         "I am your advanced, high-speed media processing assistant. I can seamlessly resize, compress, convert formats, and generate cloud links with zero quality loss!\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
@@ -229,10 +298,9 @@ def get_welcome_layout(user_id: int, first_name: str) -> str:
         "💡 <i>Note: 1 Action = 1 Credit | Invite friends to earn 🪙 5 Credits per referral!</i>\n\n"
         "👇 Select an option below to get started:"
     )
-    return text
 
 def get_main_buttons(user_id: int):
-    has_photo = get_active_file(user_id) is not None
+    has_photo = get_current_active_file(user_id) is not None
     btns = [
         [InlineKeyboardButton("🎨 Start Editing", callback_data="menu_edit_media")]
     ]
@@ -247,9 +315,10 @@ def get_main_buttons(user_id: int):
         btns.append([InlineKeyboardButton("⚙️ Admin Dashboard", callback_data="admin_main")])
     return InlineKeyboardMarkup(btns)
 
-def get_loaded_caption(details: str, fmt: str, size: str) -> str:
+def get_loaded_caption(details: str, fmt: str, size: str, step: int = 0, total_steps: int = 1) -> str:
+    version_info = f" (v{step + 1}/{total_steps})" if total_steps > 1 else ""
     return (
-        "✨ <b>Media Successfully Loaded!</b> 🚀\n"
+        f"✨ <b>Media Successfully Loaded!</b> 🚀{version_info}\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "📁 <b>Active File Details:</b>\n"
         f"▫️ <b>Resolution/Name:</b> <code>{details}</code>\n"
@@ -260,24 +329,27 @@ def get_loaded_caption(details: str, fmt: str, size: str) -> str:
         "Choose an action below to instantly process your file."
     )
 
-def get_workshop_buttons():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📐 Resize", callback_data="op_resize"), InlineKeyboardButton("🗜️ Compress", callback_data="op_compress")],
-        [InlineKeyboardButton("✂️ Format Converter", callback_data="op_convert"), InlineKeyboardButton("📄 Image ➔ PDF", callback_data="op_pdf")],
-        [InlineKeyboardButton("🔗 Generate Cloud Link", callback_data="op_link")],
-        [InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]
-    ])
-
-def get_chained_buttons():
-    return InlineKeyboardMarkup([
+def get_workshop_buttons(current_step: int = 0, total_steps: int = 1):
+    btns = []
+    
+    # Undo / Redo controls row
+    history_row = []
+    if current_step > 0:
+        history_row.append(InlineKeyboardButton("↩️ Undo", callback_data="history_undo"))
+    if current_step < total_steps - 1:
+        history_row.append(InlineKeyboardButton("↪️ Redo", callback_data="history_redo"))
+    if history_row:
+        btns.append(history_row)
+        
+    btns.extend([
         [InlineKeyboardButton("📐 Resize", callback_data="op_resize"), InlineKeyboardButton("🗜️ Compress", callback_data="op_compress")],
         [InlineKeyboardButton("✂️ Format Converter", callback_data="op_convert"), InlineKeyboardButton("📄 Image ➔ PDF", callback_data="op_pdf")],
         [InlineKeyboardButton("🔗 Generate Cloud Link", callback_data="op_link")],
         [InlineKeyboardButton("🎨 Edit Another File", callback_data="ask_photo"), InlineKeyboardButton("« Main Menu", callback_data="go_home")]
     ])
+    return InlineKeyboardMarkup(btns)
 
 async def safe_edit_caption_or_text(message: Message, text: str, reply_markup: InlineKeyboardMarkup = None):
-    """Edits in-place: edits caption if media, or edits text if text-only."""
     try:
         if message.photo or message.document:
             await message.edit_caption(caption=text, reply_markup=reply_markup)
@@ -289,7 +361,6 @@ async def safe_edit_caption_or_text(message: Message, text: str, reply_markup: I
         logger.error(f"safe_edit_caption_or_text error: {e}")
 
 async def safe_edit(query: CallbackQuery, text: str, reply_markup: InlineKeyboardMarkup = None):
-    """Guarantees standard in-place UI navigation without deleting messages."""
     try:
         if query.message.photo or query.message.document:
             await query.message.edit_caption(caption=text, reply_markup=reply_markup)
@@ -300,7 +371,7 @@ async def safe_edit(query: CallbackQuery, text: str, reply_markup: InlineKeyboar
     except Exception as e:
         logger.error(f"safe_edit error: {e}")
 
-# --- WEB SERVER (RENDER COMPLIANCE) ---
+# --- WEB SERVER FOR RENDER HEALTH CHECKS ---
 async def handle_health_check(request):
     return web.Response(text="Bot Alive", status=200)
 
@@ -314,7 +385,7 @@ async def start_web_server():
 # --- BOT INITIALIZATION ---
 bot = Client("EditMediaBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN, parse_mode=ParseMode.HTML)
 
-# --- COMMANDS & ROUTING HANDLERS ---
+# --- COMMANDS & ROUTING ---
 
 @bot.on_message(filters.command("start") & filters.private)
 async def start_cmd(client: Client, message: Message):
@@ -365,7 +436,10 @@ async def start_cmd(client: Client, message: Message):
         logger.error(f"Registration/Referral Error: {e}")
 
     if not await is_subscribed(client, user_id):
-        return await message.reply_text("❌ <b>Access Denied!</b>\nPlease join our update channels to use this bot.", reply_markup=await get_force_sub_markup())
+        return await message.reply_text(
+            "❌ <b>Access Denied!</b>\nPlease join our update channels to use this bot.",
+            reply_markup=await get_force_sub_markup()
+        )
 
     await message.reply_text(get_welcome_layout(user_id, message.from_user.first_name), reply_markup=get_main_buttons(user_id))
 
@@ -382,7 +456,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
     
     data = query.data
 
-    # Return to Main Menu
+    # Main Menu: Keep session in Firebase intact
     if data == "go_home":
         USER_STATES[user_id] = {"state": STATE_NONE}
         if query.message.photo or query.message.document:
@@ -393,13 +467,21 @@ async def callback_handler(client: Client, query: CallbackQuery):
             return await client.send_message(user_id, get_welcome_layout(user_id, query.from_user.first_name), reply_markup=get_main_buttons(user_id))
         return await safe_edit(query, get_welcome_layout(user_id, query.from_user.first_name), get_main_buttons(user_id))
 
-    # Directive 1: Check Firebase Active File for "Start Editing"
+    # Directive 1: Start Editing restores from Firebase immediately
     if data == "menu_edit_media":
-        active_file = get_active_file(user_id)
-        if active_file:
-            # File exists in Firebase; immediately load it
-            caption = get_loaded_caption(active_file.get("details"), active_file.get("format"), active_file.get("size"))
-            buttons = get_workshop_buttons()
+        session = get_session(user_id)
+        if session and session.get("file_history"):
+            history = session["file_history"]
+            step = session.get("current_step", 0)
+            active_file = history[step]
+            caption = get_loaded_caption(
+                active_file.get("details"),
+                active_file.get("format"),
+                active_file.get("size"),
+                step,
+                len(history)
+            )
+            buttons = get_workshop_buttons(step, len(history))
             try:
                 await query.message.delete()
             except Exception:
@@ -420,7 +502,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
                     reply_markup=buttons
                 )
         else:
-            # No active file in Firebase; show upload prompt
+            # No active session, prompt upload
             USER_STATES[user_id] = {"state": STATE_WAITING_PHOTO, "prompt_msg_id": query.message.id}
             text = (
                 "🎨 <b>Media & Document Workshop</b>\n"
@@ -436,15 +518,15 @@ async def callback_handler(client: Client, query: CallbackQuery):
             )
             return await safe_edit(query, text, InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]]))
 
-    # Clear Active File from Firebase and Request New File
+    # Edit Another File: Clears Firebase Session
     if data == "ask_photo":
-        delete_active_file(user_id)
+        clear_session(user_id)
         USER_STATES[user_id] = {"state": STATE_WAITING_PHOTO, "prompt_msg_id": query.message.id}
         text = (
             "🎨 <b>Media & Document Workshop</b>\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            "<b>Welcome to the processing zone!</b>\n"
-            "To get started, please send the image or document you wish to enhance. Our high-speed engine is ready to instantly resize, compress, convert, or generate cloud links for your file with zero quality loss.\n\n"
+            "<b>Ready for a new file!</b>\n"
+            "Please send the new image or document you wish to process.\n\n"
             "<b>Supported Uploads:</b>\n"
             "🖼️ Images: JPG, PNG, WEBP\n"
             "📄 Documents: PDF, DOCX, ZIP, etc.\n"
@@ -462,15 +544,90 @@ async def callback_handler(client: Client, query: CallbackQuery):
             return
         return await safe_edit(query, text, InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]]))
 
-    # Back to Loaded Workshop
-    if data == "menu_workshop_back":
-        active_file = get_active_file(user_id)
-        if not active_file:
-            return await safe_edit(query, get_welcome_layout(user_id, query.from_user.first_name), get_main_buttons(user_id))
-        caption = get_loaded_caption(active_file.get("details"), active_file.get("format"), active_file.get("size"))
-        return await safe_edit_caption_or_text(query.message, caption, reply_markup=get_workshop_buttons())
+    # Directive 2: Undo History Action
+    if data == "history_undo":
+        undo_res = step_undo(user_id)
+        if undo_res:
+            target_file, new_step, total_steps = undo_res
+            caption = get_loaded_caption(
+                target_file.get("details"),
+                target_file.get("format"),
+                target_file.get("size"),
+                new_step,
+                total_steps
+            )
+            buttons = get_workshop_buttons(new_step, total_steps)
+            is_doc = target_file.get("is_doc", False) or target_file.get("format", "").lower() in ["pdf", "webp"]
+            try:
+                if is_doc:
+                    media = InputMediaDocument(media=target_file["file_id"], caption=caption)
+                else:
+                    media = InputMediaPhoto(media=target_file["file_id"], caption=caption)
+                await query.message.edit_message_media(media=media, reply_markup=buttons)
+            except Exception:
+                try:
+                    await query.message.delete()
+                except Exception:
+                    pass
+                if is_doc:
+                    await client.send_document(user_id, target_file["file_id"], caption=caption, reply_markup=buttons, force_document=True)
+                else:
+                    await client.send_photo(user_id, target_file["file_id"], caption=caption, reply_markup=buttons)
+            return await query.answer("↩️ Undone!")
+        else:
+            return await query.answer("No earlier steps to undo.", show_alert=True)
 
-    # Cancel Active Processing Task
+    # Directive 2: Redo History Action
+    if data == "history_redo":
+        redo_res = step_redo(user_id)
+        if redo_res:
+            target_file, new_step, total_steps = redo_res
+            caption = get_loaded_caption(
+                target_file.get("details"),
+                target_file.get("format"),
+                target_file.get("size"),
+                new_step,
+                total_steps
+            )
+            buttons = get_workshop_buttons(new_step, total_steps)
+            is_doc = target_file.get("is_doc", False) or target_file.get("format", "").lower() in ["pdf", "webp"]
+            try:
+                if is_doc:
+                    media = InputMediaDocument(media=target_file["file_id"], caption=caption)
+                else:
+                    media = InputMediaPhoto(media=target_file["file_id"], caption=caption)
+                await query.message.edit_message_media(media=media, reply_markup=buttons)
+            except Exception:
+                try:
+                    await query.message.delete()
+                except Exception:
+                    pass
+                if is_doc:
+                    await client.send_document(user_id, target_file["file_id"], caption=caption, reply_markup=buttons, force_document=True)
+                else:
+                    await client.send_photo(user_id, target_file["file_id"], caption=caption, reply_markup=buttons)
+            return await query.answer("↪️ Redone!")
+        else:
+            return await query.answer("No steps to redo.", show_alert=True)
+
+    # Back to Workshop from a tool menu
+    if data == "menu_workshop_back":
+        session = get_session(user_id)
+        if not session or not session.get("file_history"):
+            return await safe_edit(query, get_welcome_layout(user_id, query.from_user.first_name), get_main_buttons(user_id))
+        history = session["file_history"]
+        step = session.get("current_step", 0)
+        active_file = history[step]
+        caption = get_loaded_caption(
+            active_file.get("details"),
+            active_file.get("format"),
+            active_file.get("size"),
+            step,
+            len(history)
+        )
+        return await safe_edit_caption_or_text(query.message, caption, reply_markup=get_workshop_buttons(step, len(history)))
+
+    # Cancel ongoing async tasks
     if data == "cancel_active_task":
         task = USER_STATES.get(user_id, {}).get("active_task")
         if task and not task.done():
@@ -478,13 +635,16 @@ async def callback_handler(client: Client, query: CallbackQuery):
             await query.answer("❌ Task cancelled!", show_alert=False)
         else:
             await query.answer("No active task to cancel.", show_alert=False)
-            active_file = get_active_file(user_id)
+            active_file = get_current_active_file(user_id)
             if active_file:
-                caption = get_loaded_caption(active_file.get("details"), active_file.get("format"), active_file.get("size"))
-                await safe_edit_caption_or_text(query.message, caption, reply_markup=get_workshop_buttons())
+                session = get_session(user_id) or {}
+                step = session.get("current_step", 0)
+                tot = len(session.get("file_history", [1]))
+                caption = get_loaded_caption(active_file.get("details"), active_file.get("format"), active_file.get("size"), step, tot)
+                await safe_edit_caption_or_text(query.message, caption, reply_markup=get_workshop_buttons(step, tot))
         return
 
-    # Refer & Earn Sub-Menu
+    # Refer & Earn
     if data == "show_referral":
         credits_val, referrals_val = get_user_credits_and_refs(user_id)
         ref_link = f"https://t.me/{BOT_USERNAME}?start=ref_{user_id}"
@@ -519,15 +679,15 @@ async def callback_handler(client: Client, query: CallbackQuery):
         )
         return await safe_edit(query, text, InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]]))
 
-    # Rules & Info Menu
+    # Rules & Info
     if data == "show_rules":
         text = (
             "📜 <b>Rules & Information</b>\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
             "1️⃣ <b>Max File Size:</b> Up to 20MB per file.\n"
-            "2️⃣ <b>Sticker Prevention:</b> WEBP & PDF files are automatically handled as documents to protect transparency and prevent unwanted sticker conversions.\n"
+            "2️⃣ <b>Sticker Prevention:</b> WEBP & PDF files are automatically handled as documents to prevent unwanted sticker conversions.\n"
             "3️⃣ <b>Credit Policy:</b> Each media transformation consumes 🪙 1 Credit. Earn 🪙 5 Credits for every friend who joins using your referral link.\n"
-            "4️⃣ <b>Privacy Guarantee:</b> All media files are wiped immediately from the server upon processing completion.\n"
+            "4️⃣ <b>Undo/Redo:</b> Every transformation is tracked in Firebase history. Navigate versions freely without losing progress!\n"
             "━━━━━━━━━━━━━━━━━━━━"
         )
         return await safe_edit(query, text, InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]]))
@@ -565,8 +725,8 @@ async def callback_handler(client: Client, query: CallbackQuery):
         USER_STATES[user_id] = {"state": chosen_state}
         return await safe_edit(query, prompt_text, InlineKeyboardMarkup([[InlineKeyboardButton("Cancel", callback_data="admin_main")]]))
 
-    # Tool Menus (Edit Caption while retaining Active File Details)
-    active_file = get_active_file(user_id)
+    # Tools Navigation (Editing caption in place)
+    active_file = get_current_active_file(user_id)
     if data.startswith("op_") and not active_file:
         USER_STATES[user_id] = {"state": STATE_WAITING_PHOTO}
         return await safe_edit(query, "🎨 <b>Please upload your file first to start editing.</b>", InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]]))
@@ -663,13 +823,13 @@ async def media_handler(client: Client, message: Message):
     if await is_banned(user_id):
         return
     
-    # 1. Delete user's incoming upload message to keep chat clean
+    # 1. Clean chat by deleting user's upload message
     try:
         await message.delete()
     except Exception:
         pass
 
-    # 2. Delete the bot's prior "Waiting for file..." prompt if tracked
+    # 2. Delete bot's previous prompt if tracked
     prompt_id = USER_STATES.get(user_id, {}).get("prompt_msg_id")
     if prompt_id:
         try:
@@ -680,7 +840,7 @@ async def media_handler(client: Client, message: Message):
     is_doc = bool(message.document)
     file_id = message.document.file_id if is_doc else message.photo.file_id
 
-    # 3. Download temporarily to extract precise file details, then persist to Firebase
+    # 3. Download temporarily to extract precise stats
     temp_path = await message.download()
     details, fmt, size = get_media_stats(temp_path)
     
@@ -690,12 +850,20 @@ async def media_handler(client: Client, message: Message):
         except Exception:
             pass
 
-    set_active_file(user_id, file_id, details, fmt, size, is_doc)
+    # 4. Initialize session in Firebase (Step 0)
+    initial_file = {
+        "file_id": file_id,
+        "details": details,
+        "format": fmt,
+        "size": size,
+        "is_doc": is_doc
+    }
+    set_new_session(user_id, initial_file)
     USER_STATES[user_id] = {"state": STATE_NONE}
 
-    # 4. Reply with ONE single media message with the workshop buttons in the caption
-    caption = get_loaded_caption(details, fmt, size)
-    buttons = get_workshop_buttons()
+    # 5. Send single response with workshop buttons
+    caption = get_loaded_caption(details, fmt, size, 0, 1)
+    buttons = get_workshop_buttons(0, 1)
 
     force_doc = is_doc or fmt.lower() in ["webp", "pdf"]
     if force_doc:
@@ -864,13 +1032,29 @@ async def text_handler(client: Client, message: Message):
 # --- CHAINED EDITING & PROCESSING ENGINES ---
 
 async def send_chained_success_file(client: Client, user_id: int, file_path: str, action_title: str):
-    """Sends the newly processed file, updates Firebase with new file_id, and attaches chained buttons."""
+    """Sends new file, appends version to Firebase history, and renders Undo/Redo buttons."""
     deduct_user_credit(user_id)
     details, fmt, size = get_media_stats(file_path)
     is_doc = fmt.lower() in ["webp", "pdf"]
     
+    # Push version to Firebase to get the new step and count
+    temp_dict = {
+        "file_id": "",  # Populated after Telegram sends
+        "details": details,
+        "format": fmt,
+        "size": size,
+        "is_doc": is_doc
+    }
+    
+    # Calculate step indicators
+    session = get_session(user_id) or {}
+    cur_step = session.get("current_step", -1)
+    tot_steps = len(session.get("file_history", []))
+    new_step = cur_step + 1
+    new_total = new_step + 1
+    
     caption = (
-        f"✅ <b>{action_title}</b>\n"
+        f"✅ <b>{action_title}</b> (v{new_step + 1})\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "📁 <b>Active File Details:</b>\n"
         f"▫️ <b>Resolution/Name:</b> <code>{details}</code>\n"
@@ -878,8 +1062,10 @@ async def send_chained_success_file(client: Client, user_id: int, file_path: str
         f"▫️ <b>Size:</b> <code>{size}</code>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "🛠️ <b>Continue Chained Editing:</b>\n"
-        "Choose an action below to process this new file further."
+        "Choose an action below or use Undo/Redo."
     )
+    
+    buttons = get_workshop_buttons(new_step, new_total)
     
     if is_doc:
         caption += "\n\n💡 <b>Note:</b> Sent as a document to preserve format/quality."
@@ -887,7 +1073,7 @@ async def send_chained_success_file(client: Client, user_id: int, file_path: str
             chat_id=user_id,
             document=file_path,
             caption=caption,
-            reply_markup=get_chained_buttons(),
+            reply_markup=buttons,
             force_document=True
         )
         new_file_id = sent.document.file_id
@@ -896,14 +1082,15 @@ async def send_chained_success_file(client: Client, user_id: int, file_path: str
             chat_id=user_id,
             photo=file_path,
             caption=caption,
-            reply_markup=get_chained_buttons()
+            reply_markup=buttons
         )
         new_file_id = sent.photo.file_id
 
-    # Persist the newly transformed file directly to Firebase
-    set_active_file(user_id, new_file_id, details, fmt, size, is_doc)
+    # Commit full version record
+    temp_dict["file_id"] = new_file_id
+    push_new_version(user_id, temp_dict)
 
-    # Clean up local temporary output
+    # Local cleanup
     if os.path.exists(file_path):
         try:
             os.remove(file_path)
@@ -911,7 +1098,7 @@ async def send_chained_success_file(client: Client, user_id: int, file_path: str
             pass
 
 async def process_image_resize(client: Client, msg: Message, user_id: int, w: int, h: int):
-    active_file = get_active_file(user_id)
+    active_file = get_current_active_file(user_id)
     if not active_file:
         await client.send_message(user_id, "❌ <b>No active image found.</b>")
         return
@@ -927,7 +1114,6 @@ async def process_image_resize(client: Client, msg: Message, user_id: int, w: in
         )
         return
 
-    # Download from Telegram via Firebase file_id
     local_input = await client.download_media(active_file["file_id"])
     timestamp = int(asyncio.get_event_loop().time())
     out = f"proc_{user_id}_{timestamp}.png"
@@ -955,7 +1141,7 @@ async def process_image_resize(client: Client, msg: Message, user_id: int, w: in
                     pass
 
 async def process_image_compress(client: Client, msg: Message, user_id: int, qual: int):
-    active_file = get_active_file(user_id)
+    active_file = get_current_active_file(user_id)
     if not active_file:
         await client.send_message(user_id, "❌ <b>No active image found.</b>")
         return
@@ -998,7 +1184,7 @@ async def process_image_compress(client: Client, msg: Message, user_id: int, qua
                     pass
 
 async def process_image_convert(client: Client, msg: Message, user_id: int, fmt: str):
-    active_file = get_active_file(user_id)
+    active_file = get_current_active_file(user_id)
     if not active_file:
         await client.send_message(user_id, "❌ <b>No active image found.</b>")
         return
@@ -1043,7 +1229,7 @@ async def process_image_convert(client: Client, msg: Message, user_id: int, fmt:
                     pass
 
 async def process_image_pdf(client: Client, msg: Message, user_id: int):
-    active_file = get_active_file(user_id)
+    active_file = get_current_active_file(user_id)
     if not active_file:
         await client.send_message(user_id, "❌ <b>No active image found.</b>")
         return
@@ -1107,15 +1293,16 @@ async def process_image_pdf(client: Client, msg: Message, user_id: int):
     try:
         await task
     except asyncio.CancelledError:
-        await safe_edit_caption_or_text(msg, get_loaded_caption(active_file.get("details"), active_file.get("format"), active_file.get("size")), reply_markup=get_workshop_buttons())
+        session = get_session(user_id) or {}
+        step = session.get("current_step", 0)
+        tot = len(session.get("file_history", [1]))
+        await safe_edit_caption_or_text(msg, get_loaded_caption(active_file.get("details"), active_file.get("format"), active_file.get("size"), step, tot), reply_markup=get_workshop_buttons(step, tot))
     finally:
         USER_STATES[user_id]["active_task"] = None
 
-# Directive 3: Catbox.moe Link Generation with Local Download from Firebase file_id
+# Directive 3: Universal Link Generation (Catbox.moe for all files: PDF, WEBP, JPG, ZIP)
 async def process_image_link(client: Client, msg: Message, user_id: int):
-    import aiohttp
-    
-    active_file = get_active_file(user_id)
+    active_file = get_current_active_file(user_id)
     if not active_file:
         await client.send_message(user_id, "❌ <b>No active image found. Please upload an image first.</b>")
         return
@@ -1146,7 +1333,8 @@ async def process_image_link(client: Client, msg: Message, user_id: int):
     await safe_edit_caption_or_text(msg, status_text, reply_markup=cancel_markup)
 
     async def _upload_task():
-        local_path = await client.download_media(active_file["file_id"])
+        # Universal download via Pyrogram
+        local_path = await client.download_media(active_file["file_id"], in_memory=False)
         try:
             async with aiohttp.ClientSession() as sess:
                 with open(local_path, "rb") as f:
@@ -1170,6 +1358,9 @@ async def process_image_link(client: Client, msg: Message, user_id: int):
                                 "━━━━━━━━━━━━━━━━━━━━\n"
                                 f"🔗 <b>Public Link:</b> <code>{url}</code>"
                             )
+                            session = get_session(user_id) or {}
+                            step = session.get("current_step", 0)
+                            tot = len(session.get("file_history", [1]))
                             btns = [
                                 [InlineKeyboardButton("🔗 Open Cloud Link", url=url)],
                                 [InlineKeyboardButton("📐 Resize", callback_data="op_resize"), InlineKeyboardButton("🗜️ Compress", callback_data="op_compress")],
@@ -1178,12 +1369,18 @@ async def process_image_link(client: Client, msg: Message, user_id: int):
                             ]
                             await safe_edit_caption_or_text(msg, caption, reply_markup=InlineKeyboardMarkup(btns))
                         else:
-                            await safe_edit_caption_or_text(msg, f"❌ <b>Link Generation Failed:</b> {res_text[:50]}", reply_markup=get_chained_buttons())
+                            session = get_session(user_id) or {}
+                            step = session.get("current_step", 0)
+                            tot = len(session.get("file_history", [1]))
+                            await safe_edit_caption_or_text(msg, f"❌ <b>Link Generation Failed:</b> {res_text[:50]}", reply_markup=get_workshop_buttons(step, tot))
         except asyncio.CancelledError:
             raise
         except Exception as e:
             logger.error(f"Catbox Error: {e}")
-            await safe_edit_caption_or_text(msg, f"❌ <b>Server Connection Failed:</b> {str(e)}", reply_markup=get_chained_buttons())
+            session = get_session(user_id) or {}
+            step = session.get("current_step", 0)
+            tot = len(session.get("file_history", [1]))
+            await safe_edit_caption_or_text(msg, f"❌ <b>Server Connection Failed:</b> {str(e)}", reply_markup=get_workshop_buttons(step, tot))
         finally:
             if local_path and os.path.exists(local_path):
                 try:
@@ -1196,11 +1393,14 @@ async def process_image_link(client: Client, msg: Message, user_id: int):
     try:
         await task
     except asyncio.CancelledError:
-        await safe_edit_caption_or_text(msg, get_loaded_caption(active_file.get("details"), active_file.get("format"), active_file.get("size")), reply_markup=get_workshop_buttons())
+        session = get_session(user_id) or {}
+        step = session.get("current_step", 0)
+        tot = len(session.get("file_history", [1]))
+        await safe_edit_caption_or_text(msg, get_loaded_caption(active_file.get("details"), active_file.get("format"), active_file.get("size"), step, tot), reply_markup=get_workshop_buttons(step, tot))
     finally:
         USER_STATES[user_id]["active_task"] = None
 
-# --- MAIN EXECUTOR ---
+# --- MAIN RUNNER ---
 async def main():
     global BOT_USERNAME
     await start_web_server()
