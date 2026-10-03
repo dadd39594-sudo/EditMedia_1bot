@@ -13,6 +13,7 @@ asyncio.set_event_loop(loop)
 import aiohttp
 from aiohttp import web
 from pyrogram import Client, filters, idle, errors
+from pyrogram.enums import ParseMode
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery
 from pyrogram.errors import UserNotParticipant
 from PIL import Image
@@ -158,18 +159,22 @@ async def is_banned(user_id: int):
         logger.error(f"Firebase is_banned Error: {e}")
         return False
 
-def get_file_info(path):
+def get_media_stats(path: str):
+    """Extracts resolution/name, format, and file size accurately."""
     if not path or not os.path.exists(path):
-        return "No active image."
+        return "N/A", "UNKNOWN", "0 KB"
     try:
         with Image.open(path) as img:
             w, h = img.size
-            fmt = img.format
-        size_bytes = os.path.getsize(path)
-        size_str = f"{size_bytes / 1024:.1f} KB" if size_bytes < 1048576 else f"{size_bytes / 1048576:.2f} MB"
-        return f"📏 **Resolution:** `{w}x{h}`\n📄 **Format:** `{fmt}`\n🗂️ **Size:** `{size_str}`"
+            details = f"{w}x{h}"
+            fmt = str(img.format).upper() if img.format else "IMAGE"
     except Exception:
-        return "Unable to read image info."
+        details = os.path.basename(path)
+        fmt = path.split(".")[-1].upper() if "." in path else "FILE"
+    
+    size_bytes = os.path.getsize(path)
+    size_str = f"{size_bytes / 1024:.1f} KB" if size_bytes < 1048576 else f"{size_bytes / 1048576:.2f} MB"
+    return details, fmt, size_str
 
 async def get_force_sub_markup():
     buttons = []
@@ -187,33 +192,26 @@ def get_welcome_layout(user_id: int, first_name: str) -> str:
     
     photo_block = ""
     if source and os.path.exists(source):
-        try:
-            with Image.open(source) as img:
-                w, h = img.size
-                fmt = img.format
-            size_bytes = os.path.getsize(source)
-            size_str = f"{size_bytes / 1024:.1f} KB" if size_bytes < 1048576 else f"{size_bytes / 1048576:.2f} MB"
-            photo_block = (
-                "🖼️ Your Photo:\n"
-                f"▫️ Resolution: `{w}x{h}`\n"
-                f"▫️ Format: `{fmt}`\n"
-                f"▫️ Size: `{size_str}`\n"
-                "━━━━━━━━━━━━━━━━━━━━\n"
-            )
-        except Exception:
-            pass
+        details, fmt, size_str = get_media_stats(source)
+        photo_block = (
+            "🖼️ <b>Your Photo:</b>\n"
+            f"▫️ <b>Resolution:</b> <code>{details}</code>\n"
+            f"▫️ <b>Format:</b> <code>{fmt}</code>\n"
+            f"▫️ <b>Size:</b> <code>{size_str}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+        )
 
     text = (
-        f"✨ Welcome to EditMedia Pro, {first_name}! 👑\n\n"
+        f"✨ <b>Welcome to EditMedia Pro, {first_name}!</b> 👑\n\n"
         "I am your advanced, high-speed media processing assistant. I can seamlessly resize, compress, convert formats, and generate cloud links with zero quality loss!\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "👤 Your Profile:\n"
-        f"▫️ Account ID: `{user_id}`\n"
-        f"▫️ Available Credits: 🪙 `{credits_val}`\n"
-        f"▫️ Total Referrals: 👥 `{referrals_val}`\n"
+        "👤 <b>Your Profile:</b>\n"
+        f"▫️ <b>Account ID:</b> <code>{user_id}</code>\n"
+        f"▫️ <b>Available Credits:</b> 🪙 <code>{credits_val}</code>\n"
+        f"▫️ <b>Total Referrals:</b> 👥 <code>{referrals_val}</code>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         f"{photo_block}"
-        "💡 _Note: 1 Action = 1 Credit | Invite friends to earn 🪙 5 Credits per referral!_\n\n"
+        "💡 <i>Note: 1 Action = 1 Credit | Invite friends to earn 🪙 5 Credits per referral!</i>\n\n"
         "👇 Select an option below to get started:"
     )
     return text
@@ -234,13 +232,46 @@ def get_main_buttons(user_id: int):
         btns.append([InlineKeyboardButton("⚙️ Admin Dashboard", callback_data="admin_main")])
     return InlineKeyboardMarkup(btns)
 
-def get_edit_media_buttons():
+def get_loaded_caption(details: str, fmt: str, size: str) -> str:
+    return (
+        "✨ <b>Media Successfully Loaded!</b> 🚀\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "📁 <b>Active File Details:</b>\n"
+        f"▫️ <b>Resolution/Name:</b> <code>{details}</code>\n"
+        f"▫️ <b>Format:</b> <code>{fmt}</code>\n"
+        f"▫️ <b>Size:</b> <code>{size}</code>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "🛠️ <b>Processing Workshop:</b>\n"
+        "Choose an action below to instantly process your file."
+    )
+
+def get_workshop_buttons():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📐 Resize", callback_data="op_resize"), InlineKeyboardButton("🗜️ Compress", callback_data="op_compress")],
         [InlineKeyboardButton("✂️ Format Converter", callback_data="op_convert"), InlineKeyboardButton("📄 Image ➔ PDF", callback_data="op_pdf")],
         [InlineKeyboardButton("🔗 Generate Cloud Link", callback_data="op_link")],
         [InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]
     ])
+
+def get_chained_buttons():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📐 Resize", callback_data="op_resize"), InlineKeyboardButton("🗜️ Compress", callback_data="op_compress")],
+        [InlineKeyboardButton("✂️ Format Converter", callback_data="op_convert"), InlineKeyboardButton("📄 Image ➔ PDF", callback_data="op_pdf")],
+        [InlineKeyboardButton("🔗 Generate Cloud Link", callback_data="op_link")],
+        [InlineKeyboardButton("🎨 Edit Another File", callback_data="ask_photo"), InlineKeyboardButton("« Main Menu", callback_data="go_home")]
+    ])
+
+async def safe_edit_caption_or_text(message: Message, text: str, reply_markup: InlineKeyboardMarkup = None):
+    """Guarantees smooth editing of either caption or text without breaking."""
+    try:
+        if message.photo or message.document:
+            await message.edit_caption(caption=text, reply_markup=reply_markup)
+        else:
+            await message.edit_text(text=text, reply_markup=reply_markup)
+    except errors.MessageNotModified:
+        pass
+    except Exception as e:
+        logger.error(f"safe_edit_caption_or_text error: {e}")
 
 async def safe_edit(query: CallbackQuery, text: str, reply_markup: InlineKeyboardMarkup = None):
     """Guarantees in-place editing of text menus without sending new spam messages."""
@@ -259,23 +290,34 @@ async def safe_edit(query: CallbackQuery, text: str, reply_markup: InlineKeyboar
         except Exception:
             pass
 
-async def send_processed_file(client: Client, user_id: int, file_path: str, action_text: str):
+async def send_chained_success_file(client: Client, user_id: int, file_path: str, action_title: str):
+    """Sends the newly processed file with chained editing buttons and stats."""
     deduct_user_credit(user_id)
     is_doc = USER_DATA.get(user_id, {}).get("is_doc", False)
     force_doc = is_doc or file_path.lower().endswith(".webp") or file_path.lower().endswith(".pdf")
     
-    out_info = get_file_info(file_path)
-    caption = f"✅ **{action_text}**\n\n{out_info}"
+    details, fmt, size = get_media_stats(file_path)
+    caption = (
+        f"✅ <b>{action_title}</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "📁 <b>Active File Details:</b>\n"
+        f"▫️ <b>Resolution/Name:</b> <code>{details}</code>\n"
+        f"▫️ <b>Format:</b> <code>{fmt}</code>\n"
+        f"▫️ <b>Size:</b> <code>{size}</code>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "🛠️ <b>Continue Chained Editing:</b>\n"
+        "Choose an action below to process this new file further."
+    )
     
     if file_path.lower().endswith(".webp") or file_path.lower().endswith(".pdf"):
-        caption += "\n\n💡 **Note:** Sent as a document to preserve format/quality."
+        caption += "\n\n💡 <b>Note:</b> Sent as a document to preserve format/quality."
         
     if force_doc:
         await client.send_document(
             chat_id=user_id,
             document=file_path,
             caption=caption,
-            reply_markup=get_main_buttons(user_id),
+            reply_markup=get_chained_buttons(),
             force_document=True
         )
     else:
@@ -283,7 +325,7 @@ async def send_processed_file(client: Client, user_id: int, file_path: str, acti
             chat_id=user_id,
             photo=file_path,
             caption=caption,
-            reply_markup=get_main_buttons(user_id)
+            reply_markup=get_chained_buttons()
         )
 
 # --- WEB SERVER (RENDER COMPLIANCE) ---
@@ -298,7 +340,7 @@ async def start_web_server():
     await web.TCPSite(runner, "0.0.0.0", PORT).start()
 
 # --- BOT INITIALIZATION ---
-bot = Client("EditMediaBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+bot = Client("EditMediaBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN, parse_mode=ParseMode.HTML)
 
 # --- COMMANDS & ROUTING HANDLERS ---
 
@@ -343,23 +385,23 @@ async def start_cmd(client: Client, message: Message):
                     try:
                         await client.send_message(
                             referrer_id,
-                            f"🎉 **New Referral Joined!**\n\n"
-                            f"👤 **User:** {message.from_user.first_name}\n"
-                            f"🪙 **Reward:** +5 Credits added to your balance!"
+                            f"🎉 <b>New Referral Joined!</b>\n\n"
+                            f"👤 <b>User:</b> {message.from_user.first_name}\n"
+                            "🪙 <b>Reward:</b> +5 Credits added to your balance!"
                         )
                     except Exception:
                         pass
 
                 if ADMIN_ID:
                     try:
-                        await client.send_message(ADMIN_ID, f"🆕 **New User:** {message.from_user.first_name} (`{user_id}`)")
+                        await client.send_message(ADMIN_ID, f"🆕 <b>New User:</b> {message.from_user.first_name} (<code>{user_id}</code>)")
                     except Exception:
                         pass
     except Exception as e:
         logger.error(f"Registration/Referral Error: {e}")
 
     if not await is_subscribed(client, user_id):
-        return await message.reply_text("❌ **Access Denied!**", reply_markup=await get_force_sub_markup())
+        return await message.reply_text("❌ <b>Access Denied!</b>\nPlease join our update channels to use this bot.", reply_markup=await get_force_sub_markup())
 
     await message.reply_text(get_welcome_layout(user_id, message.from_user.first_name), reply_markup=get_main_buttons(user_id))
 
@@ -383,23 +425,57 @@ async def callback_handler(client: Client, query: CallbackQuery):
         USER_DATA[user_id]["action"] = None
         return await safe_edit(query, get_welcome_layout(user_id, query.from_user.first_name), get_main_buttons(user_id))
 
-    # Editing Workshop Sub-Menu
-    if data == "menu_edit_media":
-        text = "🛠️ **Media Editing Workshop**\n\nSelect a powerful tool below to process your active image:"
-        return await safe_edit(query, text, get_edit_media_buttons())
+    # Directive 4: "Start Editing" Menu
+    if data in ["menu_edit_media", "ask_photo"]:
+        USER_DATA[user_id]["state"] = STATE_WAITING_PHOTO
+        text = (
+            "🎨 <b>Media & Document Workshop</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "<b>Welcome to the processing zone!</b>\n"
+            "To get started, please send the image or document you wish to enhance. Our high-speed engine is ready to instantly resize, compress, convert, or generate cloud links for your file with zero quality loss.\n\n"
+            "<b>Supported Uploads:</b>\n"
+            "🖼️ Images: JPG, PNG, WEBP\n"
+            "📄 Documents: PDF, DOCX, ZIP, etc.\n"
+            "⚖️ Max Size: 20MB\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "⏳ <i>Waiting for your file...</i>"
+        )
+        return await safe_edit(query, text, InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]]))
+
+    # Back to Loaded Workshop
+    if data == "menu_workshop_back":
+        path = USER_DATA.get(user_id, {}).get("source")
+        if not path or not os.path.exists(path):
+            return await safe_edit(query, get_welcome_layout(user_id, query.from_user.first_name), get_main_buttons(user_id))
+        details, fmt, size = get_media_stats(path)
+        return await safe_edit_caption_or_text(query.message, get_loaded_caption(details, fmt, size), reply_markup=get_workshop_buttons())
+
+    # Directive 8: Cancel Active Processing Task
+    if data == "cancel_active_task":
+        task = USER_DATA.get(user_id, {}).get("active_task")
+        if task and not task.done():
+            task.cancel()
+            await query.answer("❌ Task cancelled!", show_alert=False)
+        else:
+            await query.answer("No active task to cancel.", show_alert=False)
+            path = USER_DATA.get(user_id, {}).get("source")
+            if path and os.path.exists(path):
+                details, fmt, size = get_media_stats(path)
+                await safe_edit_caption_or_text(query.message, get_loaded_caption(details, fmt, size), reply_markup=get_workshop_buttons())
+        return
 
     # Refer & Earn Sub-Menu
     if data == "show_referral":
         credits_val, referrals_val = get_user_credits_and_refs(user_id)
         ref_link = f"https://t.me/{BOT_USERNAME}?start=ref_{user_id}"
         text = (
-            "🎁 **Refer & Earn Credits**\n\n"
+            "🎁 <b>Refer & Earn Credits</b>\n\n"
             "Invite your friends to use EditMedia Pro and earn free credits!\n\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            f"🔗 **Your Referral Link:**\n`{ref_link}`\n\n"
-            f"👥 **Your Referrals:** `{referrals_val}` Users\n"
-            f"🪙 **Your Credits:** `{credits_val}` Credits\n"
-            "▫️ **Reward:** 🪙 5 Credits per successful invite!\n"
+            f"🔗 <b>Your Referral Link:</b>\n<code>{ref_link}</code>\n\n"
+            f"👥 <b>Your Referrals:</b> <code>{referrals_val}</code> Users\n"
+            f"🪙 <b>Your Credits:</b> <code>{credits_val}</code> Credits\n"
+            "▫️ <b>Reward:</b> 🪙 5 Credits per successful invite!\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
             "Share your link with friends or channels to get unlimited credits!"
         )
@@ -426,86 +502,17 @@ async def callback_handler(client: Client, query: CallbackQuery):
     # Rules & Info Menu
     if data == "show_rules":
         text = (
-            "📜 **Rules & Information**\n\n"
-            "1️⃣ **Max File Size:** Up to 20MB per file.\n"
-            "2️⃣ **Sticker Prevention:** WEBP & PDF files are automatically handled as documents to protect transparency and prevent unwanted sticker conversions.\n"
-            "3️⃣ **Credit Policy:** Each media transformation consumes 🪙 1 Credit. Earn 🪙 5 Credits for every friend who joins using your referral link.\n"
-            "4️⃣ **Privacy Guarantee:** All media files are wiped immediately from the server upon processing completion."
+            "📜 <b>Rules & Information</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "1️⃣ <b>Max File Size:</b> Up to 20MB per file.\n"
+            "2️⃣ <b>Sticker Prevention:</b> WEBP & PDF files are automatically handled as documents to protect transparency and prevent unwanted sticker conversions.\n"
+            "3️⃣ <b>Credit Policy:</b> Each media transformation consumes 🪙 1 Credit. Earn 🪙 5 Credits for every friend who joins using your referral link.\n"
+            "4️⃣ <b>Privacy Guarantee:</b> All media files are wiped immediately from the server upon processing completion.\n"
+            "━━━━━━━━━━━━━━━━━━━━"
         )
         return await safe_edit(query, text, InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]]))
 
-    # Smart Photo Replacement Confirmation
-    if data == "replace_photo":
-        temp_path = USER_DATA.get(user_id, {}).get("temp_new_source")
-        temp_is_doc = USER_DATA.get(user_id, {}).get("temp_is_doc", False)
-        old_path = USER_DATA.get(user_id, {}).get("source")
-        
-        if old_path and os.path.exists(old_path):
-            try:
-                os.remove(old_path)
-            except Exception:
-                pass
-        
-        USER_DATA[user_id]["source"] = temp_path
-        USER_DATA[user_id]["is_doc"] = temp_is_doc
-        USER_DATA[user_id]["temp_new_source"] = None
-        USER_DATA[user_id]["state"] = STATE_NONE
-        
-        await query.message.delete()
-        
-        action = USER_DATA.get(user_id, {}).get("action")
-        USER_DATA[user_id]["action"] = None
-        
-        if action == "resize":
-            btns = [
-                [InlineKeyboardButton("Square (1080x1080)", callback_data="res_1080x1080")],
-                [InlineKeyboardButton("HD (1280x720)", callback_data="res_1280x720")],
-                [InlineKeyboardButton("Full HD (1920x1080)", callback_data="res_1920x1080")],
-                [InlineKeyboardButton("4K (3840x2160)", callback_data="res_3840x2160")],
-                [InlineKeyboardButton("⌨️ Custom Size", callback_data="res_custom")],
-                [InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]
-            ]
-            await client.send_message(user_id, "📐 **Choose Resize Preset:**", reply_markup=InlineKeyboardMarkup(btns))
-        elif action == "compress":
-            btns = [
-                [InlineKeyboardButton("🟢 High Quality", callback_data="comp_80")],
-                [InlineKeyboardButton("🟡 Medium Quality", callback_data="comp_50")],
-                [InlineKeyboardButton("🔴 Ultra Compress", callback_data="comp_20")],
-                [InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]
-            ]
-            await client.send_message(user_id, "🗜️ **Choose Quality:**", reply_markup=InlineKeyboardMarkup(btns))
-        elif action == "convert":
-            btns = [
-                [InlineKeyboardButton("PNG", callback_data="conv_png"), InlineKeyboardButton("JPG", callback_data="conv_jpeg")],
-                [InlineKeyboardButton("WEBP", callback_data="conv_webp")],
-                [InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]
-            ]
-            await client.send_message(user_id, "✂️ **Choose Format:**", reply_markup=InlineKeyboardMarkup(btns))
-        elif action == "pdf":
-            await process_image_pdf(client, None, user_id)
-        elif action == "link":
-            await process_image_link(client, None, user_id)
-        else:
-            await client.send_message(user_id, get_welcome_layout(user_id, query.from_user.first_name), reply_markup=get_main_buttons(user_id))
-        return
-
-    # Cancel Replacement
-    if data == "keep_photo":
-        temp_path = USER_DATA.get(user_id, {}).get("temp_new_source")
-        if temp_path and os.path.exists(temp_path):
-            try:
-                os.remove(temp_path)
-            except Exception:
-                pass
-        USER_DATA[user_id]["temp_new_source"] = None
-        return await query.message.delete()
-
-    # Change Photo Request
-    if data == "ask_photo":
-        USER_DATA[user_id]["state"] = STATE_WAITING_PHOTO
-        return await safe_edit(query, "📸 **Please upload your new Image.**", InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]]))
-
-    # Admin Dashboard Hub
+    # Admin Dashboard
     if data == "admin_main" and user_id == ADMIN_ID:
         USER_DATA[user_id]["state"] = STATE_NONE
         count = "N/A"
@@ -517,7 +524,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
             logger.error(f"Firebase Stats Error: {e}")
             count = "Offline"
         
-        text = f"⚙️ **Admin Dashboard**\n\n📊 Total Users: `{count}`\n\nSelect an administration action below:"
+        text = f"⚙️ <b>Admin Dashboard</b>\n\n📊 <b>Total Users:</b> <code>{count}</code>\n\nSelect an administration action below:"
         btns = [
             [InlineKeyboardButton("📣 Broadcast Message", callback_data="admin_bc")],
             [InlineKeyboardButton("🚫 Ban User", callback_data="admin_ban"), InlineKeyboardButton("✅ Unban User", callback_data="admin_unban")],
@@ -528,58 +535,101 @@ async def callback_handler(client: Client, query: CallbackQuery):
 
     if data in ["admin_bc", "admin_ban", "admin_unban", "admin_add_credits", "admin_reset_credits"] and user_id == ADMIN_ID:
         state_map = {
-            "admin_bc": (STATE_ADMIN_BROADCAST, "💬 **Send the message you want to broadcast to all users.**"),
-            "admin_ban": (STATE_ADMIN_BAN, "🚫 **Send the User ID you want to Ban.**"),
-            "admin_unban": (STATE_ADMIN_UNBAN, "✅ **Send the User ID you want to Unban.**"),
-            "admin_add_credits": (STATE_ADMIN_ADD_CREDIT, "➕ **Send User ID and Amount to add credits:**\nFormat: `user_id amount` (e.g., `123456789 20`)"),
-            "admin_reset_credits": (STATE_ADMIN_RESET_CREDIT, "🔄 **Send User ID to reset credits back to 10:**\nFormat: `user_id` (e.g., `123456789`)")
+            "admin_bc": (STATE_ADMIN_BROADCAST, "💬 <b>Send the message you want to broadcast to all users.</b>"),
+            "admin_ban": (STATE_ADMIN_BAN, "🚫 <b>Send the User ID you want to Ban.</b>"),
+            "admin_unban": (STATE_ADMIN_UNBAN, "✅ <b>Send the User ID you want to Unban.</b>"),
+            "admin_add_credits": (STATE_ADMIN_ADD_CREDIT, "➕ <b>Send User ID and Amount to add credits:</b>\nFormat: <code>user_id amount</code> (e.g., <code>123456789 20</code>)"),
+            "admin_reset_credits": (STATE_ADMIN_RESET_CREDIT, "🔄 <b>Send User ID to reset credits back to 10:</b>\nFormat: <code>user_id</code> (e.g., <code>123456789</code>)")
         }
         chosen_state, prompt_text = state_map[data]
         USER_DATA[user_id]["state"] = chosen_state
         return await safe_edit(query, prompt_text, InlineKeyboardMarkup([[InlineKeyboardButton("Cancel", callback_data="admin_main")]]))
 
-    # Operation Triggers
-    if data.startswith("op_"):
+    # Directive 6: Tool Menus (Edit Caption while retaining Active File Details)
+    path = USER_DATA.get(user_id, {}).get("source")
+    if data.startswith("op_") and (not path or not os.path.exists(path)):
         action = data.split("_")[1]
-        if not USER_DATA.get(user_id, {}).get("source"):
-            USER_DATA[user_id] = {"state": STATE_WAITING_PHOTO, "action": action}
-            return await safe_edit(query, f"💎 **Mode: {action.upper()}**\n\nPlease upload the image to continue.", InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]]))
-        
-        USER_DATA[user_id]["action"] = action
-        if action == "resize":
-            btns = [
-                [InlineKeyboardButton("Square (1080x1080)", callback_data="res_1080x1080")],
-                [InlineKeyboardButton("HD (1280x720)", callback_data="res_1280x720")],
-                [InlineKeyboardButton("Full HD (1920x1080)", callback_data="res_1920x1080")],
-                [InlineKeyboardButton("4K (3840x2160)", callback_data="res_3840x2160")],
-                [InlineKeyboardButton("⌨️ Custom Size", callback_data="res_custom")],
-                [InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]
-            ]
-            await safe_edit(query, "📐 **Choose Resize Preset:**", InlineKeyboardMarkup(btns))
-        elif action == "compress":
-            btns = [
-                [InlineKeyboardButton("🟢 High Quality", callback_data="comp_80")],
-                [InlineKeyboardButton("🟡 Medium Quality", callback_data="comp_50")],
-                [InlineKeyboardButton("🔴 Ultra Compress", callback_data="comp_20")],
-                [InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]
-            ]
-            await safe_edit(query, "🗜️ **Choose Quality:**", InlineKeyboardMarkup(btns))
-        elif action == "convert":
-            btns = [
-                [InlineKeyboardButton("PNG", callback_data="conv_png"), InlineKeyboardButton("JPG", callback_data="conv_jpeg")],
-                [InlineKeyboardButton("WEBP", callback_data="conv_webp")],
-                [InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]
-            ]
-            await safe_edit(query, "✂️ **Choose Format:**", InlineKeyboardMarkup(btns))
-        elif action == "pdf":
-            await process_image_pdf(client, query.message, user_id)
-        elif action == "link":
-            await process_image_link(client, query.message, user_id)
+        USER_DATA[user_id] = {"state": STATE_WAITING_PHOTO, "action": action}
+        return await safe_edit(query, f"💎 <b>Mode: {action.upper()}</b>\n\nPlease upload your file to continue.", InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]]))
+
+    if data == "op_resize":
+        details, fmt, size = get_media_stats(path)
+        caption = (
+            "📁 <b>Active File Details:</b>\n"
+            f"▫️ <b>Resolution/Name:</b> <code>{details}</code>\n"
+            f"▫️ <b>Format:</b> <code>{fmt}</code>\n"
+            f"▫️ <b>Size:</b> <code>{size}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "📐 <b>Image Resizing Workshop:</b>\n"
+            "Select a target resolution preset or choose custom dimensions:"
+        )
+        btns = [
+            [InlineKeyboardButton("Square (1080x1080)", callback_data="res_1080x1080")],
+            [InlineKeyboardButton("HD (1280x720)", callback_data="res_1280x720")],
+            [InlineKeyboardButton("Full HD (1920x1080)", callback_data="res_1920x1080")],
+            [InlineKeyboardButton("4K (3840x2160)", callback_data="res_3840x2160")],
+            [InlineKeyboardButton("⌨️ Custom Size", callback_data="res_custom")],
+            [InlineKeyboardButton("« Back to Workshop", callback_data="menu_workshop_back")]
+        ]
+        return await safe_edit_caption_or_text(query.message, caption, reply_markup=InlineKeyboardMarkup(btns))
+
+    elif data == "op_compress":
+        details, fmt, size = get_media_stats(path)
+        caption = (
+            "📁 <b>Active File Details:</b>\n"
+            f"▫️ <b>Resolution/Name:</b> <code>{details}</code>\n"
+            f"▫️ <b>Format:</b> <code>{fmt}</code>\n"
+            f"▫️ <b>Size:</b> <code>{size}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "🗜️ <b>Image Compression Workshop:</b>\n"
+            "Select your desired output quality level:"
+        )
+        btns = [
+            [InlineKeyboardButton("🟢 High Quality", callback_data="comp_80")],
+            [InlineKeyboardButton("🟡 Medium Quality", callback_data="comp_50")],
+            [InlineKeyboardButton("🔴 Ultra Compress", callback_data="comp_20")],
+            [InlineKeyboardButton("« Back to Workshop", callback_data="menu_workshop_back")]
+        ]
+        return await safe_edit_caption_or_text(query.message, caption, reply_markup=InlineKeyboardMarkup(btns))
+
+    elif data == "op_convert":
+        details, fmt, size = get_media_stats(path)
+        caption = (
+            "📁 <b>Active File Details:</b>\n"
+            f"▫️ <b>Resolution/Name:</b> <code>{details}</code>\n"
+            f"▫️ <b>Format:</b> <code>{fmt}</code>\n"
+            f"▫️ <b>Size:</b> <code>{size}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "✂️ <b>Format Converter Workshop:</b>\n"
+            "Select the new format you want to convert this file into:"
+        )
+        btns = [
+            [InlineKeyboardButton("PNG", callback_data="conv_png"), InlineKeyboardButton("JPG", callback_data="conv_jpeg")],
+            [InlineKeyboardButton("WEBP", callback_data="conv_webp")],
+            [InlineKeyboardButton("« Back to Workshop", callback_data="menu_workshop_back")]
+        ]
+        return await safe_edit_caption_or_text(query.message, caption, reply_markup=InlineKeyboardMarkup(btns))
+
+    elif data == "op_pdf":
+        await process_image_pdf(client, query.message, user_id)
+
+    elif data == "op_link":
+        await process_image_link(client, query.message, user_id)
 
     elif data.startswith("res_"):
         if data == "res_custom":
             USER_DATA[user_id]["state"] = STATE_WAITING_RESIZE_CUSTOM
-            await safe_edit(query, "⌨️ Type: `Width Height` (e.g. `800 600`)", InlineKeyboardMarkup([[InlineKeyboardButton("Cancel", callback_data="go_home")]]))
+            details, fmt, size = get_media_stats(path)
+            caption = (
+                "📁 <b>Active File Details:</b>\n"
+                f"▫️ <b>Resolution/Name:</b> <code>{details}</code>\n"
+                f"▫️ <b>Format:</b> <code>{fmt}</code>\n"
+                f"▫️ <b>Size:</b> <code>{size}</code>\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "⌨️ <b>Custom Resolution:</b>\n"
+                "Please send the desired dimensions in <code>Width Height</code> format (e.g., <code>800 600</code>)."
+            )
+            await safe_edit_caption_or_text(query.message, caption, InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Workshop", callback_data="menu_workshop_back")]]))
         else:
             w, h = map(int, data.split("_")[1].split("x"))
             await process_image_resize(client, query.message, user_id, w, h)
@@ -590,7 +640,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
     elif data.startswith("conv_"):
         await process_image_convert(client, query.message, user_id, data.split("_")[1])
 
-# --- MEDIA HANDLER ---
+# --- ZERO-CLUTTER UPLOAD FLOW ---
 
 @bot.on_message((filters.photo | filters.document) & filters.private)
 async def media_handler(client: Client, message: Message):
@@ -598,74 +648,52 @@ async def media_handler(client: Client, message: Message):
     if await is_banned(user_id):
         return
     
-    is_doc = bool(message.document)
-    old_src = USER_DATA.get(user_id, {}).get("source")
-    
-    # Prompt replacement if an image is already active
-    if old_src and os.path.exists(old_src):
-        status = await message.reply_text("⏳ **Downloading new image...**")
-        path = await message.download()
-        try:
-            await status.delete()
-        except Exception:
-            pass
-        
-        USER_DATA[user_id] = USER_DATA.get(user_id, {})
-        USER_DATA[user_id]["temp_new_source"] = path
-        USER_DATA[user_id]["temp_is_doc"] = is_doc
-        
-        btns = [
-            [InlineKeyboardButton("✅ Yes, Replace", callback_data="replace_photo")],
-            [InlineKeyboardButton("❌ No, Keep Old", callback_data="keep_photo")]
-        ]
-        await message.reply_text("📸 **New Image Detected!** Do you want to replace your current active photo?", reply_markup=InlineKeyboardMarkup(btns))
-        return
-
-    # First-Time Image Upload
-    status = await message.reply_text("⏳ **Downloading Image...**")
-    path = await message.download()
+    # Directive 3: Delete user's upload message immediately to prevent chat clutter
     try:
-        await status.delete()
+        await message.delete()
     except Exception:
         pass
     
-    USER_DATA[user_id] = USER_DATA.get(user_id, {})
-    USER_DATA[user_id].update({"source": path, "state": STATE_NONE, "is_doc": is_doc})
+    is_doc = bool(message.document)
     
-    action = USER_DATA[user_id].get("action")
+    # Clean up previous active source file on disk
+    old_src = USER_DATA.get(user_id, {}).get("source")
+    if old_src and os.path.exists(old_src):
+        try:
+            os.remove(old_src)
+        except Exception:
+            pass
+
+    # Download incoming file
+    path = await message.download()
+    
+    USER_DATA[user_id] = USER_DATA.get(user_id, {})
+    USER_DATA[user_id]["source"] = path
+    USER_DATA[user_id]["state"] = STATE_NONE
+    USER_DATA[user_id]["is_doc"] = is_doc
     USER_DATA[user_id]["action"] = None
     
-    if action == "resize":
-        btns = [
-            [InlineKeyboardButton("Square (1080x1080)", callback_data="res_1080x1080")],
-            [InlineKeyboardButton("HD (1280x720)", callback_data="res_1280x720")],
-            [InlineKeyboardButton("Full HD (1920x1080)", callback_data="res_1920x1080")],
-            [InlineKeyboardButton("4K (3840x2160)", callback_data="res_3840x2160")],
-            [InlineKeyboardButton("⌨️ Custom Size", callback_data="res_custom")],
-            [InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]
-        ]
-        await message.reply_text("📐 **Choose Resize Preset:**", reply_markup=InlineKeyboardMarkup(btns))
-    elif action == "compress":
-        btns = [
-            [InlineKeyboardButton("🟢 High Quality", callback_data="comp_80")],
-            [InlineKeyboardButton("🟡 Medium Quality", callback_data="comp_50")],
-            [InlineKeyboardButton("🔴 Ultra Compress", callback_data="comp_20")],
-            [InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]
-        ]
-        await message.reply_text("🗜️ **Choose Quality:**", reply_markup=InlineKeyboardMarkup(btns))
-    elif action == "convert":
-        btns = [
-            [InlineKeyboardButton("PNG", callback_data="conv_png"), InlineKeyboardButton("JPG", callback_data="conv_jpeg")],
-            [InlineKeyboardButton("WEBP", callback_data="conv_webp")],
-            [InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]
-        ]
-        await message.reply_text("✂️ **Choose Format:**", reply_markup=InlineKeyboardMarkup(btns))
-    elif action == "pdf":
-        await process_image_pdf(client, None, user_id)
-    elif action == "link":
-        await process_image_link(client, None, user_id)
+    # Directive 5: Loaded File Caption & Workshop Buttons
+    details, fmt, size = get_media_stats(path)
+    caption = get_loaded_caption(details, fmt, size)
+    buttons = get_workshop_buttons()
+    
+    force_doc = is_doc or path.lower().endswith(".webp") or path.lower().endswith(".pdf")
+    if force_doc:
+        await client.send_document(
+            chat_id=user_id,
+            document=path,
+            caption=caption,
+            reply_markup=buttons,
+            force_document=True
+        )
     else:
-        await message.reply_text(get_welcome_layout(user_id, message.from_user.first_name), reply_markup=get_main_buttons(user_id))
+        await client.send_photo(
+            chat_id=user_id,
+            photo=path,
+            caption=caption,
+            reply_markup=buttons
+        )
 
 # --- TEXT HANDLER & ADMIN PROCESSOR ---
 
@@ -699,7 +727,7 @@ async def text_handler(client: Client, message: Message):
                 if not users:
                     raise Exception("No users found in database.")
 
-                status = await message.reply_text("🚀 **Broadcasting message...**")
+                status = await message.reply_text("🚀 <b>Broadcasting message...</b>")
                 success_count = 0
                 failed_count = 0
 
@@ -714,9 +742,9 @@ async def text_handler(client: Client, message: Message):
                         continue
 
                 await status.edit_text(
-                    f"✅ **Broadcast Completed!**\n\n"
-                    f"🟢 Sent: `{success_count}`\n"
-                    f"🔴 Failed: `{failed_count}`"
+                    "✅ <b>Broadcast Completed!</b>\n\n"
+                    f"🟢 <b>Sent:</b> <code>{success_count}</code>\n"
+                    f"🔴 <b>Failed:</b> <code>{failed_count}</code>"
                 )
             except Exception as e:
                 logger.error(f"Broadcast Error: {e}")
@@ -725,7 +753,7 @@ async def text_handler(client: Client, message: Message):
                         await status.delete()
                     except Exception:
                         pass
-                await message.reply_text(f"❌ Broadcast Failed: {e}")
+                await message.reply_text(f"❌ <b>Broadcast Failed:</b> {e}")
             finally:
                 USER_DATA[user_id]["state"] = STATE_NONE
             return
@@ -735,10 +763,10 @@ async def text_handler(client: Client, message: Message):
                 target_id = message.text.strip()
                 if firebase_admin._apps:
                     db.reference(f"banned/{target_id}").set(True)
-                await message.reply_text(f"🚫 User `{target_id}` has been Banned.")
+                await message.reply_text(f"🚫 User <code>{target_id}</code> has been Banned.")
             except Exception as e:
                 logger.error(f"Ban Error: {e}")
-                await message.reply_text(f"❌ Ban Failed: {e}")
+                await message.reply_text(f"❌ <b>Ban Failed:</b> {e}")
             finally:
                 USER_DATA[user_id]["state"] = STATE_NONE
             return
@@ -748,10 +776,10 @@ async def text_handler(client: Client, message: Message):
                 target_id = message.text.strip()
                 if firebase_admin._apps:
                     db.reference(f"banned/{target_id}").delete()
-                await message.reply_text(f"✅ User `{target_id}` has been Unbanned.")
+                await message.reply_text(f"✅ User <code>{target_id}</code> has been Unbanned.")
             except Exception as e:
                 logger.error(f"Unban Error: {e}")
-                await message.reply_text(f"❌ Unban Failed: {e}")
+                await message.reply_text(f"❌ <b>Unban Failed:</b> {e}")
             finally:
                 USER_DATA[user_id]["state"] = STATE_NONE
             return
@@ -760,17 +788,17 @@ async def text_handler(client: Client, message: Message):
             try:
                 parts = message.text.strip().split()
                 if len(parts) != 2:
-                    raise ValueError("Format: `user_id amount` (e.g. `123456789 25`)")
+                    raise ValueError("Format: <code>user_id amount</code> (e.g. <code>123456789 25</code>)")
                 target_id, amount = int(parts[0]), int(parts[1])
                 new_bal = add_user_credits(target_id, amount)
-                await message.reply_text(f"✅ Added `{amount}` Credits to `{target_id}`.\nNew Balance: 🪙 `{new_bal}`")
+                await message.reply_text(f"✅ Added <code>{amount}</code> Credits to <code>{target_id}</code>.\nNew Balance: 🪙 <code>{new_bal}</code>")
                 try:
-                    await client.send_message(target_id, f"🎁 **Credits Added!**\nAdmin added 🪙 `{amount}` Credits to your balance!\nCurrent Balance: 🪙 `{new_bal}`")
+                    await client.send_message(target_id, f"🎁 <b>Credits Added!</b>\nAdmin added 🪙 <code>{amount}</code> Credits to your balance!\nCurrent Balance: 🪙 <code>{new_bal}</code>")
                 except Exception:
                     pass
             except Exception as e:
                 logger.error(f"Add Credits Error: {e}")
-                await message.reply_text(f"❌ Failed to add credits: {e}")
+                await message.reply_text(f"❌ <b>Failed to add credits:</b> {e}")
             finally:
                 USER_DATA[user_id]["state"] = STATE_NONE
             return
@@ -779,14 +807,14 @@ async def text_handler(client: Client, message: Message):
             try:
                 target_id = int(message.text.strip())
                 new_bal = reset_user_credits(target_id)
-                await message.reply_text(f"🔄 Credits for `{target_id}` reset to 🪙 `{new_bal}`.")
+                await message.reply_text(f"🔄 Credits for <code>{target_id}</code> reset to 🪙 <code>{new_bal}</code>.")
                 try:
-                    await client.send_message(target_id, f"ℹ️ Your credits have been reset to 🪙 `{new_bal}` by an Administrator.")
+                    await client.send_message(target_id, f"ℹ️ Your credits have been reset to 🪙 <code>{new_bal}</code> by an Administrator.")
                 except Exception:
                     pass
             except Exception as e:
                 logger.error(f"Reset Credits Error: {e}")
-                await message.reply_text(f"❌ Failed to reset credits: {e}")
+                await message.reply_text(f"❌ <b>Failed to reset credits:</b> {e}")
             finally:
                 USER_DATA[user_id]["state"] = STATE_NONE
             return
@@ -794,6 +822,10 @@ async def text_handler(client: Client, message: Message):
     # --- USER CUSTOM RESIZE ---
     if state == STATE_WAITING_RESIZE_CUSTOM:
         try:
+            try:
+                await message.delete()
+            except Exception:
+                pass
             parts = message.text.strip().split()
             if len(parts) != 2:
                 raise ValueError("Expected two dimensions")
@@ -802,42 +834,35 @@ async def text_handler(client: Client, message: Message):
                 raise ValueError("Dimensions must be positive")
             await process_image_resize(client, None, user_id, w, h)
         except ValueError:
-            await message.reply_text("⚠️ **Invalid Format!** Please send valid numbers in 'Width Height' format (e.g., `1280 720`).")
+            await message.reply_text("⚠️ <b>Invalid Format!</b> Please send valid numbers in 'Width Height' format (e.g., <code>1280 720</code>).")
         except Exception as e:
             logger.error(f"Resize Error: {e}")
-            await message.reply_text(f"❌ Error: {e}")
+            await message.reply_text(f"❌ <b>Error:</b> {e}")
         finally:
             USER_DATA[user_id]["state"] = STATE_NONE
         return
 
-# --- IMAGE PROCESSING ENGINES ---
+# --- CHAINED EDITING & PROCESSING ENGINES ---
 
 async def process_image_resize(client: Client, msg: Message, user_id: int, w: int, h: int):
     path = USER_DATA.get(user_id, {}).get("source")
     if not path or not os.path.exists(path):
-        await client.send_message(user_id, "❌ No active image found.")
+        await client.send_message(user_id, "❌ <b>No active image found.</b>")
         return
 
     credits_val, _ = get_user_credits_and_refs(user_id)
     if credits_val < 1:
         await client.send_message(
             user_id,
-            "⚠️ **Insufficient Credits!**\n\n"
+            "⚠️ <b>Insufficient Credits!</b>\n\n"
             "You need at least 🪙 1 Credit to process this media.\n"
-            "Invite friends via **🎁 Refer & Earn** to earn 🪙 5 Credits per invite!",
+            "Invite friends via <b>🎁 Refer & Earn</b> to earn 🪙 5 Credits per invite!",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎁 Refer & Earn", callback_data="show_referral")]])
         )
         return
 
-    out = f"res_{user_id}.png"
-    status = None
-    if msg:
-        try:
-            await msg.edit_text("⚙️ **Processing Resize...**")
-        except Exception:
-            status = await client.send_message(user_id, "⚙️ **Processing Resize...**")
-    else:
-        status = await client.send_message(user_id, "⚙️ **Processing Resize...**")
+    timestamp = int(asyncio.get_event_loop().time())
+    out = f"active_{user_id}_{timestamp}.png"
 
     try:
         with Image.open(path) as img:
@@ -848,46 +873,46 @@ async def process_image_resize(client: Client, msg: Message, user_id: int, w: in
                 await msg.delete()
             except Exception:
                 pass
-        if status:
+        
+        # Directive 7: Update source to newly processed file for chained editing
+        if path != out and os.path.exists(path):
             try:
-                await status.delete()
+                os.remove(path)
             except Exception:
                 pass
-            
-        await send_processed_file(client, user_id, out, f"Resized to {w}x{h}")
+        
+        USER_DATA[user_id]["source"] = out
+        USER_DATA[user_id]["is_doc"] = False
+        
+        await send_chained_success_file(client, user_id, out, f"Resize Successful! 📐 ({w}x{h})")
     except Exception as e:
         logger.error(f"Resize Error: {e}")
-        await client.send_message(user_id, f"❌ Failed to resize image: {e}")
-    finally:
         if os.path.exists(out):
-            os.remove(out)
+            try:
+                os.remove(out)
+            except Exception:
+                pass
+        await client.send_message(user_id, f"❌ <b>Failed to resize image:</b> {e}")
 
 async def process_image_compress(client: Client, msg: Message, user_id: int, qual: int):
     path = USER_DATA.get(user_id, {}).get("source")
     if not path or not os.path.exists(path):
-        await client.send_message(user_id, "❌ No active image found.")
+        await client.send_message(user_id, "❌ <b>No active image found.</b>")
         return
 
     credits_val, _ = get_user_credits_and_refs(user_id)
     if credits_val < 1:
         await client.send_message(
             user_id,
-            "⚠️ **Insufficient Credits!**\n\n"
+            "⚠️ <b>Insufficient Credits!</b>\n\n"
             "You need at least 🪙 1 Credit to process this media.\n"
-            "Invite friends via **🎁 Refer & Earn** to earn 🪙 5 Credits per invite!",
+            "Invite friends via <b>🎁 Refer & Earn</b> to earn 🪙 5 Credits per invite!",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎁 Refer & Earn", callback_data="show_referral")]])
         )
         return
 
-    out = f"comp_{user_id}.jpg"
-    status = None
-    if msg:
-        try:
-            await msg.edit_text("⚙️ **Compressing Image...**")
-        except Exception:
-            status = await client.send_message(user_id, "⚙️ **Compressing Image...**")
-    else:
-        status = await client.send_message(user_id, "⚙️ **Compressing Image...**")
+    timestamp = int(asyncio.get_event_loop().time())
+    out = f"active_{user_id}_{timestamp}.jpg"
 
     try:
         with Image.open(path) as img:
@@ -898,50 +923,50 @@ async def process_image_compress(client: Client, msg: Message, user_id: int, qua
                 await msg.delete()
             except Exception:
                 pass
-        if status:
+        
+        # Directive 7: Update source to newly processed file for chained editing
+        if path != out and os.path.exists(path):
             try:
-                await status.delete()
+                os.remove(path)
             except Exception:
                 pass
-            
-        await send_processed_file(client, user_id, out, f"Compressed (Quality: {qual}%)")
+        
+        USER_DATA[user_id]["source"] = out
+        USER_DATA[user_id]["is_doc"] = False
+        
+        await send_chained_success_file(client, user_id, out, f"Compression Successful! 🗜️ ({qual}%)")
     except Exception as e:
         logger.error(f"Compress Error: {e}")
-        await client.send_message(user_id, f"❌ Failed to compress image: {e}")
-    finally:
         if os.path.exists(out):
-            os.remove(out)
+            try:
+                os.remove(out)
+            except Exception:
+                pass
+        await client.send_message(user_id, f"❌ <b>Failed to compress image:</b> {e}")
 
 async def process_image_convert(client: Client, msg: Message, user_id: int, fmt: str):
     path = USER_DATA.get(user_id, {}).get("source")
     if not path or not os.path.exists(path):
-        await client.send_message(user_id, "❌ No active image found.")
+        await client.send_message(user_id, "❌ <b>No active image found.</b>")
         return
 
     credits_val, _ = get_user_credits_and_refs(user_id)
     if credits_val < 1:
         await client.send_message(
             user_id,
-            "⚠️ **Insufficient Credits!**\n\n"
+            "⚠️ <b>Insufficient Credits!</b>\n\n"
             "You need at least 🪙 1 Credit to process this media.\n"
-            "Invite friends via **🎁 Refer & Earn** to earn 🪙 5 Credits per invite!",
+            "Invite friends via <b>🎁 Refer & Earn</b> to earn 🪙 5 Credits per invite!",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎁 Refer & Earn", callback_data="show_referral")]])
         )
         return
 
-    out = f"conv_{user_id}.{fmt}"
-    status = None
-    if msg:
-        try:
-            await msg.edit_text(f"⚙️ **Converting to {fmt.upper()}...**")
-        except Exception:
-            status = await client.send_message(user_id, f"⚙️ **Converting to {fmt.upper()}...**")
-    else:
-        status = await client.send_message(user_id, f"⚙️ **Converting to {fmt.upper()}...**")
+    timestamp = int(asyncio.get_event_loop().time())
+    out = f"active_{user_id}_{timestamp}.{fmt.lower()}"
 
     try:
         with Image.open(path) as img:
-            if fmt in ["jpg", "jpeg"]:
+            if fmt.lower() in ["jpg", "jpeg"]:
                 img = img.convert("RGB")
             img.save(out)
             
@@ -950,129 +975,191 @@ async def process_image_convert(client: Client, msg: Message, user_id: int, fmt:
                 await msg.delete()
             except Exception:
                 pass
-        if status:
+        
+        # Directive 7: Update source to newly processed file for chained editing
+        if path != out and os.path.exists(path):
             try:
-                await status.delete()
+                os.remove(path)
             except Exception:
                 pass
-            
-        await send_processed_file(client, user_id, out, f"Format: {fmt.upper()}")
+        
+        USER_DATA[user_id]["source"] = out
+        USER_DATA[user_id]["is_doc"] = (fmt.lower() == "webp")
+        
+        await send_chained_success_file(client, user_id, out, f"Format Conversion to {fmt.upper()} Successful! ✂️")
     except Exception as e:
         logger.error(f"Convert Error: {e}")
-        await client.send_message(user_id, f"❌ Failed to convert image: {e}")
-    finally:
         if os.path.exists(out):
-            os.remove(out)
+            try:
+                os.remove(out)
+            except Exception:
+                pass
+        await client.send_message(user_id, f"❌ <b>Failed to convert image:</b> {e}")
 
+# Directive 8: Cancellable Processing for PDF
 async def process_image_pdf(client: Client, msg: Message, user_id: int):
     path = USER_DATA.get(user_id, {}).get("source")
     if not path or not os.path.exists(path):
-        await client.send_message(user_id, "❌ No active image found.")
+        await client.send_message(user_id, "❌ <b>No active image found.</b>")
         return
 
     credits_val, _ = get_user_credits_and_refs(user_id)
     if credits_val < 1:
         await client.send_message(
             user_id,
-            "⚠️ **Insufficient Credits!**\n\n"
+            "⚠️ <b>Insufficient Credits!</b>\n\n"
             "You need at least 🪙 1 Credit to process this media.\n"
-            "Invite friends via **🎁 Refer & Earn** to earn 🪙 5 Credits per invite!",
+            "Invite friends via <b>🎁 Refer & Earn</b> to earn 🪙 5 Credits per invite!",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎁 Refer & Earn", callback_data="show_referral")]])
         )
         return
 
-    out = f"doc_{user_id}.pdf"
-    status = None
-    if msg:
+    details, fmt, size = get_media_stats(path)
+    cancel_markup = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="cancel_active_task")]])
+    status_text = (
+        "⚙️ <b>Processing...</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "📁 <b>Active File Details:</b>\n"
+        f"▫️ <b>Resolution/Name:</b> <code>{details}</code>\n"
+        f"▫️ <b>Format:</b> <code>{fmt}</code>\n"
+        f"▫️ <b>Size:</b> <code>{size}</code>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "⏳ <i>Generating PDF document...</i>"
+    )
+
+    await safe_edit_caption_or_text(msg, status_text, reply_markup=cancel_markup)
+
+    async def _pdf_task():
+        timestamp = int(asyncio.get_event_loop().time())
+        out = f"active_{user_id}_{timestamp}.pdf"
         try:
-            await msg.edit_text("⚙️ **Creating PDF...**")
-        except Exception:
-            status = await client.send_message(user_id, "⚙️ **Creating PDF...**")
-    else:
-        status = await client.send_message(user_id, "⚙️ **Creating PDF...**")
+            await asyncio.sleep(0.3)
+            with Image.open(path) as img:
+                img.convert("RGB").save(out, "PDF")
+            
+            if msg:
+                try:
+                    await msg.delete()
+                except Exception:
+                    pass
+            
+            if path != out and os.path.exists(path):
+                try:
+                    os.remove(path)
+                except Exception:
+                    pass
+            
+            USER_DATA[user_id]["source"] = out
+            USER_DATA[user_id]["is_doc"] = True
+            
+            await send_chained_success_file(client, user_id, out, "PDF Generation Successful! 📄")
+        except asyncio.CancelledError:
+            if os.path.exists(out):
+                try:
+                    os.remove(out)
+                except Exception:
+                    pass
+            raise
+        except Exception as e:
+            logger.error(f"PDF Error: {e}")
+            if os.path.exists(out):
+                try:
+                    os.remove(out)
+                except Exception:
+                    pass
+            await client.send_message(user_id, f"❌ <b>Failed to generate PDF:</b> {e}")
 
+    task = asyncio.create_task(_pdf_task())
+    USER_DATA[user_id]["active_task"] = task
     try:
-        with Image.open(path) as img:
-            img.convert("RGB").save(out, "PDF")
-            
-        if msg:
-            try:
-                await msg.delete()
-            except Exception:
-                pass
-        if status:
-            try:
-                await status.delete()
-            except Exception:
-                pass
-            
-        await send_processed_file(client, user_id, out, "PDF Generated")
-    except Exception as e:
-        logger.error(f"PDF Error: {e}")
-        await client.send_message(user_id, f"❌ Failed to generate PDF: {e}")
+        await task
+    except asyncio.CancelledError:
+        await safe_edit_caption_or_text(msg, get_loaded_caption(details, fmt, size), reply_markup=get_workshop_buttons())
     finally:
-        if os.path.exists(out):
-            os.remove(out)
+        USER_DATA[user_id]["active_task"] = None
 
-# Catbox.moe Cloud Link Upload Logic (Direct file stream upload)
+# Directive 8: Cancellable Processing for Catbox.moe Cloud Link Upload
 async def process_image_link(client: Client, msg: Message, user_id: int):
     import aiohttp
     
     path = USER_DATA.get(user_id, {}).get("source")
     if not path or not os.path.exists(path):
-        await client.send_message(user_id, "❌ No active image found. Please upload an image first.")
+        await client.send_message(user_id, "❌ <b>No active image found. Please upload an image first.</b>")
         return
 
     credits_val, _ = get_user_credits_and_refs(user_id)
     if credits_val < 1:
         await client.send_message(
             user_id,
-            "⚠️ **Insufficient Credits!**\n\n"
+            "⚠️ <b>Insufficient Credits!</b>\n\n"
             "You need at least 🪙 1 Credit to generate a cloud link.\n"
-            "Invite friends via **🎁 Refer & Earn** to earn 🪙 5 Credits per invite!",
+            "Invite friends via <b>🎁 Refer & Earn</b> to earn 🪙 5 Credits per invite!",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎁 Refer & Earn", callback_data="show_referral")]])
         )
         return
 
-    if msg:
-        try:
-            await msg.delete()
-        except Exception:
-            pass
+    details, fmt, size = get_media_stats(path)
+    cancel_markup = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="cancel_active_task")]])
+    status_text = (
+        "⚙️ <b>Processing...</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "📁 <b>Active File Details:</b>\n"
+        f"▫️ <b>Resolution/Name:</b> <code>{details}</code>\n"
+        f"▫️ <b>Format:</b> <code>{fmt}</code>\n"
+        f"▫️ <b>Size:</b> <code>{size}</code>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "⏳ <i>Uploading to cloud storage...</i>"
+    )
 
-    status = await client.send_message(user_id, "📤 **Generating Public Link...**")
-    
-    try:
-        async with aiohttp.ClientSession() as sess:
-            with open(path, "rb") as f:
-                form = aiohttp.FormData()
-                form.add_field("reqtype", "fileupload")
-                form.add_field("fileToUpload", f)
-                
-                async with sess.post("https://catbox.moe/user/api.php", data=form) as resp:
-                    res_text = await resp.text()
-                    
-                    if resp.status == 200 and res_text.startswith("https://"):
-                        url = res_text.strip()
-                        deduct_user_credit(user_id)
-                        out_info = get_file_info(path)
-                        caption = f"✅ **Public Link Generated!**\n\n{out_info}\n\n🔗 `{url}`"
-                        
-                        btns = [
-                            [InlineKeyboardButton("🔗 Open Cloud Link", url=url)],
-                            [InlineKeyboardButton("🎨 Start Editing", callback_data="menu_edit_media"), InlineKeyboardButton("« Main Menu", callback_data="go_home")]
-                        ]
-                        await client.send_message(user_id, caption, reply_markup=InlineKeyboardMarkup(btns))
-                    else:
-                        await client.send_message(user_id, f"❌ Link Generation Failed: {res_text[:50]}")
-    except Exception as e:
-        logger.error(f"Catbox Error: {e}")
-        await client.send_message(user_id, f"❌ Server Connection Failed. (Error: {str(e)})")
-    finally: 
+    await safe_edit_caption_or_text(msg, status_text, reply_markup=cancel_markup)
+
+    async def _upload_task():
         try:
-            await status.delete()
-        except Exception:
-            pass
+            async with aiohttp.ClientSession() as sess:
+                with open(path, "rb") as f:
+                    form = aiohttp.FormData()
+                    form.add_field("reqtype", "fileupload")
+                    form.add_field("fileToUpload", f)
+                    
+                    async with sess.post("https://catbox.moe/user/api.php", data=form) as resp:
+                        res_text = await resp.text()
+                        
+                        if resp.status == 200 and res_text.startswith("https://"):
+                            url = res_text.strip()
+                            deduct_user_credit(user_id)
+                            caption = (
+                                "✅ <b>Cloud Link Generated!</b> 🔗\n"
+                                "━━━━━━━━━━━━━━━━━━━━\n"
+                                "📁 <b>Active File Details:</b>\n"
+                                f"▫️ <b>Resolution/Name:</b> <code>{details}</code>\n"
+                                f"▫️ <b>Format:</b> <code>{fmt}</code>\n"
+                                f"▫️ <b>Size:</b> <code>{size}</code>\n"
+                                "━━━━━━━━━━━━━━━━━━━━\n"
+                                f"🔗 <b>Public Link:</b> <code>{url}</code>"
+                            )
+                            btns = [
+                                [InlineKeyboardButton("🔗 Open Cloud Link", url=url)],
+                                [InlineKeyboardButton("📐 Resize", callback_data="op_resize"), InlineKeyboardButton("🗜️ Compress", callback_data="op_compress")],
+                                [InlineKeyboardButton("✂️ Format Converter", callback_data="op_convert"), InlineKeyboardButton("📄 Image ➔ PDF", callback_data="op_pdf")],
+                                [InlineKeyboardButton("🎨 Edit Another File", callback_data="ask_photo"), InlineKeyboardButton("« Main Menu", callback_data="go_home")]
+                            ]
+                            await safe_edit_caption_or_text(msg, caption, reply_markup=InlineKeyboardMarkup(btns))
+                        else:
+                            await safe_edit_caption_or_text(msg, f"❌ <b>Link Generation Failed:</b> {res_text[:50]}", reply_markup=get_chained_buttons())
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(f"Catbox Error: {e}")
+            await safe_edit_caption_or_text(msg, f"❌ <b>Server Connection Failed:</b> {str(e)}", reply_markup=get_chained_buttons())
+
+    task = asyncio.create_task(_upload_task())
+    USER_DATA[user_id]["active_task"] = task
+    try:
+        await task
+    except asyncio.CancelledError:
+        await safe_edit_caption_or_text(msg, get_loaded_caption(details, fmt, size), reply_markup=get_workshop_buttons())
+    finally:
+        USER_DATA[user_id]["active_task"] = None
 
 # --- MAIN EXECUTOR ---
 async def main():
