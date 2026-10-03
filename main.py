@@ -11,7 +11,8 @@ asyncio.set_event_loop(loop)
 # --------------------------------------
 
 import aiohttp
-from aiohttp import web, FormData
+from aiohttp import web
+import requests
 from pyrogram import Client, filters, idle, errors
 from pyrogram.enums import ParseMode
 from pyrogram.types import (
@@ -522,7 +523,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
             "Please send the new image or document you wish to process.\n\n"
             "<b>Supported Uploads:</b>\n"
             "🖼️ Images: JPG, PNG, WEBP\n"
-            "📄 Documents: PDF, DOCX, ZIP, etc.\n"
+            "📄 Documents: PDF, DOCX, ZIP, data, etc.\n"
             "⚖️ Max Size: 20MB\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
             "⏳ <i>Waiting for your file...</i>"
@@ -1129,7 +1130,7 @@ async def text_handler(client: Client, message: Message):
             try:
                 parts = message.text.strip().split()
                 if len(parts) != 2:
-                    raise ValueError("Format: <code>user_id amount</code> (e.g. <code>123456789 25</code>)")
+                    raise ValueError("Format: <code>user_id amount</code> (e.g. <code>123456789 20</code>)")
                 target_id, amount = int(parts[0]), int(parts[1])
                 new_bal = add_user_credits(target_id, amount)
                 await message.reply_text(f"✅ Added <code>{amount}</code> Credits to <code>{target_id}</code>.\nNew Balance: 🪙 <code>{new_bal}</code>")
@@ -1504,7 +1505,7 @@ async def process_image_pdf(client: Client, msg: Message, user_id: int):
     finally:
         USER_STATES[user_id]["active_task"] = None
 
-# --- DIRECTIVE 1: TELEGRAPH IMAGE HOSTING ENGINE WITH HTTP 400 FIX ---
+# --- DIRECTIVE 1: TELEGRAPH IMAGE HOSTING ENGINE WITH REQUESTS SYNCHRONOUS RUNNER ---
 async def process_image_link(client: Client, msg: Message, user_id: int):
     active_file = get_current_active_file(user_id)
     if not active_file:
@@ -1590,31 +1591,24 @@ async def process_image_link(client: Client, msg: Message, user_id: int):
 
             prep_path = await asyncio.to_thread(prepare_for_telegraph, local_path)
 
-                        # High-speed upload to Telegraph via aiohttp
-            public_url = None
-            async with aiohttp.ClientSession() as session:
-                data = FormData()
-                # Telegraph-এর জন্য Content-Type (image/jpeg বা image/png) বলাটা ১০০% বাধ্যতামূলক!
-                content_type = "image/png" if prep_path.lower().endswith(".png") else "image/jpeg"
-                
-                with open(prep_path, "rb") as f:
-                    # f.read() এর বদলে ডাইরেক্ট ফাইল অবজেক্ট পাঠানো হলো
-                    data.add_field("file", f, filename=os.path.basename(prep_path), content_type=content_type)
-                    
-                    # User-Agent অ্যাড করা হলো যাতে Telegraph বটের সার্ভার আইপি ব্লক না করে
-                    headers = {"User-Agent": "Mozilla/5.0"}
-                    
-                    async with session.post("https://telegra.ph/upload", data=data, headers=headers) as resp:
-                        if resp.status != 200:
-                            raise Exception(f"Telegraph HTTP {resp.status}")
-                        result = await resp.json()
-                        if isinstance(result, list) and len(result) > 0 and "src" in result[0]:
-                            public_url = f"https://telegra.ph{result[0]['src']}"
-                        elif isinstance(result, dict) and "error" in result:
-                            raise Exception(result["error"])
-                        else:
-                            raise Exception("Invalid response from Telegraph")
+            # High-speed synchronous upload with requests to guarantee multipart boundaries
+            def upload_sync(path):
+                with open(path, "rb") as f:
+                    mime_type = "image/png" if path.lower().endswith(".png") else "image/jpeg"
+                    files = {"file": ("image.jpg", f, mime_type)}
+                    resp = requests.post("https://telegra.ph/upload", files=files)
+                    if resp.status_code != 200:
+                        raise Exception(f"Telegraph HTTP {resp.status_code}")
+                    return resp.json()
 
+            result = await asyncio.to_thread(upload_sync, prep_path)
+            
+            if isinstance(result, list) and len(result) > 0 and "src" in result[0]:
+                public_url = f"https://telegra.ph{result[0]['src']}"
+            elif isinstance(result, dict) and "error" in result:
+                raise Exception(result["error"])
+            else:
+                raise Exception("Invalid response from Telegraph")
 
             # Record Metadata in Realtime Database
             push_id = None
