@@ -467,7 +467,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
             return await client.send_message(user_id, get_welcome_layout(user_id, query.from_user.first_name), reply_markup=get_main_buttons(user_id))
         return await safe_edit(query, get_welcome_layout(user_id, query.from_user.first_name), get_main_buttons(user_id))
 
-    # Directive 1: Start Editing restores from Firebase immediately
+    # Start Editing restores from Firebase immediately if exists
     if data == "menu_edit_media":
         session = get_session(user_id)
         if session and session.get("file_history"):
@@ -518,9 +518,9 @@ async def callback_handler(client: Client, query: CallbackQuery):
             )
             return await safe_edit(query, text, InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]]))
 
-    # Edit Another File: Clears Firebase Session
+    # CRITICAL FIX 1: Edit Another File / Change Photo
+    # ONLY sets state to waiting, NEVER deletes active file/session from Firebase prematurely!
     if data == "ask_photo":
-        clear_session(user_id)
         USER_STATES[user_id] = {"state": STATE_WAITING_PHOTO, "prompt_msg_id": query.message.id}
         text = (
             "🎨 <b>Media & Document Workshop</b>\n"
@@ -544,7 +544,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
             return
         return await safe_edit(query, text, InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]]))
 
-    # Directive 2: Undo History Action
+    # Undo History Action
     if data == "history_undo":
         undo_res = step_undo(user_id)
         if undo_res:
@@ -577,7 +577,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
         else:
             return await query.answer("No earlier steps to undo.", show_alert=True)
 
-    # Directive 2: Redo History Action
+    # Redo History Action
     if data == "history_redo":
         redo_res = step_redo(user_id)
         if redo_res:
@@ -850,7 +850,7 @@ async def media_handler(client: Client, message: Message):
         except Exception:
             pass
 
-    # 4. Initialize session in Firebase (Step 0)
+    # 4. Overwrite and initialize new session in Firebase ONLY NOW that a new file is uploaded
     initial_file = {
         "file_id": file_id,
         "details": details,
@@ -1037,19 +1037,16 @@ async def send_chained_success_file(client: Client, user_id: int, file_path: str
     details, fmt, size = get_media_stats(file_path)
     is_doc = fmt.lower() in ["webp", "pdf"]
     
-    # Push version to Firebase to get the new step and count
     temp_dict = {
-        "file_id": "",  # Populated after Telegram sends
+        "file_id": "",
         "details": details,
         "format": fmt,
         "size": size,
         "is_doc": is_doc
     }
     
-    # Calculate step indicators
     session = get_session(user_id) or {}
     cur_step = session.get("current_step", -1)
-    tot_steps = len(session.get("file_history", []))
     new_step = cur_step + 1
     new_total = new_step + 1
     
@@ -1300,7 +1297,7 @@ async def process_image_pdf(client: Client, msg: Message, user_id: int):
     finally:
         USER_STATES[user_id]["active_task"] = None
 
-# Directive 3: Universal Link Generation (Catbox.moe for all files: PDF, WEBP, JPG, ZIP)
+# CRITICAL FIX 2: Universal Link Generation with Catbox 502/Down 3x Retry Mechanism
 async def process_image_link(client: Client, msg: Message, user_id: int):
     active_file = get_current_active_file(user_id)
     if not active_file:
@@ -1333,50 +1330,82 @@ async def process_image_link(client: Client, msg: Message, user_id: int):
     await safe_edit_caption_or_text(msg, status_text, reply_markup=cancel_markup)
 
     async def _upload_task():
-        # Universal download via Pyrogram
         local_path = await client.download_media(active_file["file_id"], in_memory=False)
         try:
             async with aiohttp.ClientSession() as sess:
-                with open(local_path, "rb") as f:
-                    form = aiohttp.FormData()
-                    form.add_field("reqtype", "fileupload")
-                    form.add_field("fileToUpload", f)
-                    
-                    async with sess.post("https://catbox.moe/user/api.php", data=form) as resp:
-                        res_text = await resp.text()
-                        
-                        if resp.status == 200 and res_text.startswith("https://"):
-                            url = res_text.strip()
-                            deduct_user_credit(user_id)
-                            caption = (
-                                "✅ <b>Cloud Link Generated!</b> 🔗\n"
-                                "━━━━━━━━━━━━━━━━━━━━\n"
-                                "📁 <b>Active File Details:</b>\n"
-                                f"▫️ <b>Resolution/Name:</b> <code>{active_file.get('details')}</code>\n"
-                                f"▫️ <b>Format:</b> <code>{active_file.get('format')}</code>\n"
-                                f"▫️ <b>Size:</b> <code>{active_file.get('size')}</code>\n"
-                                "━━━━━━━━━━━━━━━━━━━━\n"
-                                f"🔗 <b>Public Link:</b> <code>{url}</code>"
-                            )
-                            session = get_session(user_id) or {}
-                            step = session.get("current_step", 0)
-                            tot = len(session.get("file_history", [1]))
-                            btns = [
-                                [InlineKeyboardButton("🔗 Open Cloud Link", url=url)],
-                                [InlineKeyboardButton("📐 Resize", callback_data="op_resize"), InlineKeyboardButton("🗜️ Compress", callback_data="op_compress")],
-                                [InlineKeyboardButton("✂️ Format Converter", callback_data="op_convert"), InlineKeyboardButton("📄 Image ➔ PDF", callback_data="op_pdf")],
-                                [InlineKeyboardButton("🎨 Edit Another File", callback_data="ask_photo"), InlineKeyboardButton("« Main Menu", callback_data="go_home")]
-                            ]
-                            await safe_edit_caption_or_text(msg, caption, reply_markup=InlineKeyboardMarkup(btns))
-                        else:
-                            session = get_session(user_id) or {}
-                            step = session.get("current_step", 0)
-                            tot = len(session.get("file_history", [1]))
-                            await safe_edit_caption_or_text(msg, f"❌ <b>Link Generation Failed:</b> {res_text[:50]}", reply_markup=get_workshop_buttons(step, tot))
+                max_retries = 3
+                last_status = None
+                is_server_error = False
+                res_text = ""
+
+                for attempt in range(1, max_retries + 1):
+                    try:
+                        with open(local_path, "rb") as f:
+                            form = aiohttp.FormData()
+                            form.add_field("reqtype", "fileupload")
+                            form.add_field("fileToUpload", f)
+                            
+                            async with sess.post("https://catbox.moe/user/api.php", data=form, timeout=aiohttp.ClientTimeout(total=45)) as resp:
+                                last_status = resp.status
+                                res_text = await resp.text()
+                                
+                                if resp.status == 200 and res_text.startswith("https://"):
+                                    url = res_text.strip()
+                                    deduct_user_credit(user_id)
+                                    caption = (
+                                        "✅ <b>Cloud Link Generated!</b> 🔗\n"
+                                        "━━━━━━━━━━━━━━━━━━━━\n"
+                                        "📁 <b>Active File Details:</b>\n"
+                                        f"▫️ <b>Resolution/Name:</b> <code>{active_file.get('details')}</code>\n"
+                                        f"▫️ <b>Format:</b> <code>{active_file.get('format')}</code>\n"
+                                        f"▫️ <b>Size:</b> <code>{active_file.get('size')}</code>\n"
+                                        "━━━━━━━━━━━━━━━━━━━━\n"
+                                        f"🔗 <b>Public Link:</b> <code>{url}</code>"
+                                    )
+                                    session = get_session(user_id) or {}
+                                    step = session.get("current_step", 0)
+                                    tot = len(session.get("file_history", [1]))
+                                    btns = [
+                                        [InlineKeyboardButton("🔗 Open Cloud Link", url=url)],
+                                        [InlineKeyboardButton("📐 Resize", callback_data="op_resize"), InlineKeyboardButton("🗜️ Compress", callback_data="op_compress")],
+                                        [InlineKeyboardButton("✂️ Format Converter", callback_data="op_convert"), InlineKeyboardButton("📄 Image ➔ PDF", callback_data="op_pdf")],
+                                        [InlineKeyboardButton("🎨 Edit Another File", callback_data="ask_photo"), InlineKeyboardButton("« Main Menu", callback_data="go_home")]
+                                    ]
+                                    await safe_edit_caption_or_text(msg, caption, reply_markup=InlineKeyboardMarkup(btns))
+                                    return
+                                elif resp.status in [500, 502, 503, 504]:
+                                    is_server_error = True
+                                    logger.warning(f"Catbox attempt {attempt} returned HTTP {resp.status}")
+                                else:
+                                    logger.warning(f"Catbox attempt {attempt} failed: {res_text[:60]}")
+                    except (aiohttp.ClientError, asyncio.TimeoutError) as net_err:
+                        logger.warning(f"Catbox attempt {attempt} network exception: {net_err}")
+                        is_server_error = True
+
+                    if attempt < max_retries:
+                        await asyncio.sleep(2)
+
+                # If all 3 attempts fail, report specific error
+                session = get_session(user_id) or {}
+                step = session.get("current_step", 0)
+                tot = len(session.get("file_history", [1]))
+                
+                if is_server_error or (last_status and last_status in [500, 502, 503, 504]):
+                    await safe_edit_caption_or_text(
+                        msg,
+                        "❌ <b>Catbox Server is currently down (502 Bad Gateway). Please try again later.</b>",
+                        reply_markup=get_workshop_buttons(step, tot)
+                    )
+                else:
+                    await safe_edit_caption_or_text(
+                        msg,
+                        f"❌ <b>Link Generation Failed:</b> {res_text[:50]}",
+                        reply_markup=get_workshop_buttons(step, tot)
+                    )
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            logger.error(f"Catbox Error: {e}")
+            logger.error(f"Catbox Critical Error: {e}")
             session = get_session(user_id) or {}
             step = session.get("current_step", 0)
             tot = len(session.get("file_history", [1]))
