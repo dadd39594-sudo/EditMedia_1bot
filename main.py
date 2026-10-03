@@ -1590,15 +1590,21 @@ async def process_image_link(client: Client, msg: Message, user_id: int):
 
             prep_path = await asyncio.to_thread(prepare_for_telegraph, local_path)
 
-            # High-speed upload to Telegraph with content_type fix
+                        # High-speed upload to Telegraph via aiohttp
             public_url = None
             async with aiohttp.ClientSession() as session:
+                data = FormData()
+                # Telegraph-এর জন্য Content-Type (image/jpeg বা image/png) বলাটা ১০০% বাধ্যতামূলক!
+                content_type = "image/png" if prep_path.lower().endswith(".png") else "image/jpeg"
+                
                 with open(prep_path, "rb") as f:
-                    form = aiohttp.FormData()
-                    content_type = "image/png" if prep_path.endswith(".png") else "image/jpeg"
-                    form.add_field("file", f, filename=os.path.basename(prep_path), content_type=content_type)
+                    # f.read() এর বদলে ডাইরেক্ট ফাইল অবজেক্ট পাঠানো হলো
+                    data.add_field("file", f, filename=os.path.basename(prep_path), content_type=content_type)
                     
-                    async with session.post("https://telegra.ph/upload", data=form) as resp:
+                    # User-Agent অ্যাড করা হলো যাতে Telegraph বটের সার্ভার আইপি ব্লক না করে
+                    headers = {"User-Agent": "Mozilla/5.0"}
+                    
+                    async with session.post("https://telegra.ph/upload", data=data, headers=headers) as resp:
                         if resp.status != 200:
                             raise Exception(f"Telegraph HTTP {resp.status}")
                         result = await resp.json()
@@ -1608,6 +1614,7 @@ async def process_image_link(client: Client, msg: Message, user_id: int):
                             raise Exception(result["error"])
                         else:
                             raise Exception("Invalid response from Telegraph")
+
 
             # Record Metadata in Realtime Database
             push_id = None
