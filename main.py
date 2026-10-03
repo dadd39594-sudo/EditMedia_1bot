@@ -502,7 +502,6 @@ async def callback_handler(client: Client, query: CallbackQuery):
                     reply_markup=buttons
                 )
         else:
-            # No active session, prompt upload
             USER_STATES[user_id] = {"state": STATE_WAITING_PHOTO, "prompt_msg_id": query.message.id}
             text = (
                 "🎨 <b>Media & Document Workshop</b>\n"
@@ -518,8 +517,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
             )
             return await safe_edit(query, text, InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]]))
 
-    # CRITICAL FIX 1: Edit Another File / Change Photo
-    # ONLY sets state to waiting, NEVER deletes active file/session from Firebase prematurely!
+    # Edit Another File: ONLY sets state to waiting, NEVER deletes active file/session prematurely
     if data == "ask_photo":
         USER_STATES[user_id] = {"state": STATE_WAITING_PHOTO, "prompt_msg_id": query.message.id}
         text = (
@@ -850,7 +848,7 @@ async def media_handler(client: Client, message: Message):
         except Exception:
             pass
 
-    # 4. Overwrite and initialize new session in Firebase ONLY NOW that a new file is uploaded
+    # 4. Initialize session in Firebase (Step 0)
     initial_file = {
         "file_id": file_id,
         "details": details,
@@ -1094,6 +1092,7 @@ async def send_chained_success_file(client: Client, user_id: int, file_path: str
         except Exception:
             pass
 
+# FIX 2 & 4: Preserve format and optimize during resize
 async def process_image_resize(client: Client, msg: Message, user_id: int, w: int, h: int):
     active_file = get_current_active_file(user_id)
     if not active_file:
@@ -1113,11 +1112,33 @@ async def process_image_resize(client: Client, msg: Message, user_id: int, w: in
 
     local_input = await client.download_media(active_file["file_id"])
     timestamp = int(asyncio.get_event_loop().time())
-    out = f"proc_{user_id}_{timestamp}.png"
+    out = None
 
     try:
         with Image.open(local_input) as img:
-            img.resize((w, h), Image.Resampling.LANCZOS).save(out)
+            orig_fmt = str(img.format).upper() if img.format else active_file.get("format", "PNG").upper()
+            
+            if orig_fmt in ["JPG", "JPEG"]:
+                out_ext = "jpg"
+                save_fmt = "JPEG"
+                if img.mode in ("RGBA", "P"):
+                    img = img.convert("RGB")
+            elif orig_fmt == "WEBP":
+                out_ext = "webp"
+                save_fmt = "WEBP"
+            else:
+                out_ext = "png"
+                save_fmt = "PNG"
+
+            out = f"proc_{user_id}_{timestamp}.{out_ext}"
+            resized = img.resize((w, h), Image.Resampling.LANCZOS)
+            
+            if save_fmt == "PNG":
+                resized.save(out, format=save_fmt, optimize=True)
+            elif save_fmt == "WEBP":
+                resized.save(out, format=save_fmt, quality=90, method=6)
+            else:
+                resized.save(out, format=save_fmt, quality=90, optimize=True)
         
         if msg:
             try:
@@ -1137,6 +1158,7 @@ async def process_image_resize(client: Client, msg: Message, user_id: int, w: in
                 except Exception:
                     pass
 
+# FIX 2 & 4: Smart format-preserving compression (PNG adaptive quantization, WEBP/JPEG preservation)
 async def process_image_compress(client: Client, msg: Message, user_id: int, qual: int):
     active_file = get_current_active_file(user_id)
     if not active_file:
@@ -1156,11 +1178,35 @@ async def process_image_compress(client: Client, msg: Message, user_id: int, qua
 
     local_input = await client.download_media(active_file["file_id"])
     timestamp = int(asyncio.get_event_loop().time())
-    out = f"proc_{user_id}_{timestamp}.jpg"
+    out = None
 
     try:
         with Image.open(local_input) as img:
-            img.convert("RGB").save(out, "JPEG", quality=qual, optimize=True)
+            orig_fmt = str(img.format).upper() if img.format else active_file.get("format", "JPEG").upper()
+            
+            if orig_fmt == "PNG":
+                out_ext = "png"
+                out = f"proc_{user_id}_{timestamp}.{out_ext}"
+                colors = 256 if qual >= 80 else (128 if qual >= 50 else 64)
+                
+                # Check for alpha channels to prevent losing transparency
+                if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+                    comp_img = img.quantize(colors=colors, method=Image.Quantize.FASTOCTREE)
+                else:
+                    comp_img = img.convert('P', palette=Image.ADAPTIVE, colors=colors)
+                comp_img.save(out, format='PNG', optimize=True)
+
+            elif orig_fmt == "WEBP":
+                out_ext = "webp"
+                out = f"proc_{user_id}_{timestamp}.{out_ext}"
+                img.save(out, format='WEBP', quality=qual, method=6)
+
+            else:  # JPEG or standard formats
+                out_ext = "jpg"
+                out = f"proc_{user_id}_{timestamp}.{out_ext}"
+                if img.mode in ("RGBA", "P"):
+                    img = img.convert("RGB")
+                img.save(out, format='JPEG', quality=qual, optimize=True)
             
         if msg:
             try:
@@ -1180,6 +1226,7 @@ async def process_image_compress(client: Client, msg: Message, user_id: int, qua
                 except Exception:
                     pass
 
+# FIX 3 & 4: Optimized format conversion (PNG size bloat minimization, format tracking)
 async def process_image_convert(client: Client, msg: Message, user_id: int, fmt: str):
     active_file = get_current_active_file(user_id)
     if not active_file:
@@ -1199,13 +1246,22 @@ async def process_image_convert(client: Client, msg: Message, user_id: int, fmt:
 
     local_input = await client.download_media(active_file["file_id"])
     timestamp = int(asyncio.get_event_loop().time())
-    out = f"proc_{user_id}_{timestamp}.{fmt.lower()}"
+    target_fmt = fmt.lower()
+    out = f"proc_{user_id}_{timestamp}.{target_fmt}"
 
     try:
         with Image.open(local_input) as img:
-            if fmt.lower() in ["jpg", "jpeg"]:
-                img = img.convert("RGB")
-            img.save(out)
+            if target_fmt in ["jpg", "jpeg"]:
+                if img.mode in ("RGBA", "P"):
+                    img = img.convert("RGB")
+                img.save(out, format="JPEG", quality=90, optimize=True)
+            elif target_fmt == "png":
+                # Optimize PNG saving to prevent file size bloat
+                img.save(out, format="PNG", optimize=True)
+            elif target_fmt == "webp":
+                img.save(out, format="WEBP", quality=90, method=6)
+            else:
+                img.save(out, format=target_fmt.upper())
             
         if msg:
             try:
@@ -1297,8 +1353,10 @@ async def process_image_pdf(client: Client, msg: Message, user_id: int):
     finally:
         USER_STATES[user_id]["active_task"] = None
 
-# CRITICAL FIX 2: Universal Link Generation with Catbox 502/Down 3x Retry Mechanism
+# REPLACED CATBOX WITH HIGH-SPEED PIXELDRAIN API & STRICT TIMEOUT
 async def process_image_link(client: Client, msg: Message, user_id: int):
+    import aiohttp
+
     active_file = get_current_active_file(user_id)
     if not active_file:
         await client.send_message(user_id, "❌ <b>No active image found. Please upload an image first.</b>")
@@ -1324,7 +1382,7 @@ async def process_image_link(client: Client, msg: Message, user_id: int):
         f"▫️ <b>Format:</b> <code>{active_file.get('format')}</code>\n"
         f"▫️ <b>Size:</b> <code>{active_file.get('size')}</code>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "⏳ <i>Downloading & uploading to Catbox storage...</i>"
+        "⏳ <i>Uploading to Pixeldrain cloud storage...</i>"
     )
 
     await safe_edit_caption_or_text(msg, status_text, reply_markup=cancel_markup)
@@ -1332,84 +1390,72 @@ async def process_image_link(client: Client, msg: Message, user_id: int):
     async def _upload_task():
         local_path = await client.download_media(active_file["file_id"], in_memory=False)
         try:
-            async with aiohttp.ClientSession() as sess:
-                max_retries = 3
-                last_status = None
-                is_server_error = False
-                res_text = ""
+            # 20-second strict timeout for fast failure detection
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as sess:
+                with open(local_path, "rb") as f:
+                    form = aiohttp.FormData()
+                    filename = os.path.basename(local_path)
+                    form.add_field("file", f, filename=filename)
 
-                for attempt in range(1, max_retries + 1):
-                    try:
-                        with open(local_path, "rb") as f:
-                            form = aiohttp.FormData()
-                            form.add_field("reqtype", "fileupload")
-                            form.add_field("fileToUpload", f)
-                            
-                            async with sess.post("https://catbox.moe/user/api.php", data=form, timeout=aiohttp.ClientTimeout(total=45)) as resp:
-                                last_status = resp.status
-                                res_text = await resp.text()
-                                
-                                if resp.status == 200 and res_text.startswith("https://"):
-                                    url = res_text.strip()
-                                    deduct_user_credit(user_id)
-                                    caption = (
-                                        "✅ <b>Cloud Link Generated!</b> 🔗\n"
-                                        "━━━━━━━━━━━━━━━━━━━━\n"
-                                        "📁 <b>Active File Details:</b>\n"
-                                        f"▫️ <b>Resolution/Name:</b> <code>{active_file.get('details')}</code>\n"
-                                        f"▫️ <b>Format:</b> <code>{active_file.get('format')}</code>\n"
-                                        f"▫️ <b>Size:</b> <code>{active_file.get('size')}</code>\n"
-                                        "━━━━━━━━━━━━━━━━━━━━\n"
-                                        f"🔗 <b>Public Link:</b> <code>{url}</code>"
-                                    )
-                                    session = get_session(user_id) or {}
-                                    step = session.get("current_step", 0)
-                                    tot = len(session.get("file_history", [1]))
-                                    btns = [
-                                        [InlineKeyboardButton("🔗 Open Cloud Link", url=url)],
-                                        [InlineKeyboardButton("📐 Resize", callback_data="op_resize"), InlineKeyboardButton("🗜️ Compress", callback_data="op_compress")],
-                                        [InlineKeyboardButton("✂️ Format Converter", callback_data="op_convert"), InlineKeyboardButton("📄 Image ➔ PDF", callback_data="op_pdf")],
-                                        [InlineKeyboardButton("🎨 Edit Another File", callback_data="ask_photo"), InlineKeyboardButton("« Main Menu", callback_data="go_home")]
-                                    ]
-                                    await safe_edit_caption_or_text(msg, caption, reply_markup=InlineKeyboardMarkup(btns))
-                                    return
-                                elif resp.status in [500, 502, 503, 504]:
-                                    is_server_error = True
-                                    logger.warning(f"Catbox attempt {attempt} returned HTTP {resp.status}")
-                                else:
-                                    logger.warning(f"Catbox attempt {attempt} failed: {res_text[:60]}")
-                    except (aiohttp.ClientError, asyncio.TimeoutError) as net_err:
-                        logger.warning(f"Catbox attempt {attempt} network exception: {net_err}")
-                        is_server_error = True
+                    async with sess.post("https://pixeldrain.com/api/file", data=form) as resp:
+                        if resp.status in (200, 201):
+                            res_json = await resp.json()
+                            file_id = res_json.get("id")
+                            if file_id:
+                                url = f"https://pixeldrain.com/u/{file_id}"
+                                deduct_user_credit(user_id)
+                                caption = (
+                                    "✅ <b>Cloud Link Generated!</b> 🔗\n"
+                                    "━━━━━━━━━━━━━━━━━━━━\n"
+                                    "📁 <b>Active File Details:</b>\n"
+                                    f"▫️ <b>Resolution/Name:</b> <code>{active_file.get('details')}</code>\n"
+                                    f"▫️ <b>Format:</b> <code>{active_file.get('format')}</code>\n"
+                                    f"▫️ <b>Size:</b> <code>{active_file.get('size')}</code>\n"
+                                    "━━━━━━━━━━━━━━━━━━━━\n"
+                                    f"🔗 <b>Public Link:</b> <code>{url}</code>"
+                                )
+                                session = get_session(user_id) or {}
+                                step = session.get("current_step", 0)
+                                tot = len(session.get("file_history", [1]))
+                                btns = [
+                                    [InlineKeyboardButton("🔗 Open Cloud Link", url=url)],
+                                    [InlineKeyboardButton("📐 Resize", callback_data="op_resize"), InlineKeyboardButton("🗜️ Compress", callback_data="op_compress")],
+                                    [InlineKeyboardButton("✂️ Format Converter", callback_data="op_convert"), InlineKeyboardButton("📄 Image ➔ PDF", callback_data="op_pdf")],
+                                    [InlineKeyboardButton("🎨 Edit Another File", callback_data="ask_photo"), InlineKeyboardButton("« Main Menu", callback_data="go_home")]
+                                ]
+                                await safe_edit_caption_or_text(msg, caption, reply_markup=InlineKeyboardMarkup(btns))
+                                return
 
-                    if attempt < max_retries:
-                        await asyncio.sleep(2)
-
-                # If all 3 attempts fail, report specific error
-                session = get_session(user_id) or {}
-                step = session.get("current_step", 0)
-                tot = len(session.get("file_history", [1]))
-                
-                if is_server_error or (last_status and last_status in [500, 502, 503, 504]):
-                    await safe_edit_caption_or_text(
-                        msg,
-                        "❌ <b>Catbox Server is currently down (502 Bad Gateway). Please try again later.</b>",
-                        reply_markup=get_workshop_buttons(step, tot)
-                    )
-                else:
-                    await safe_edit_caption_or_text(
-                        msg,
-                        f"❌ <b>Link Generation Failed:</b> {res_text[:50]}",
-                        reply_markup=get_workshop_buttons(step, tot)
-                    )
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            logger.error(f"Catbox Critical Error: {e}")
+                        # Non-successful HTTP response
+                        session = get_session(user_id) or {}
+                        step = session.get("current_step", 0)
+                        tot = len(session.get("file_history", [1]))
+                        await safe_edit_caption_or_text(
+                            msg,
+                            "❌ <b>Link Generation Failed: Server Error. Please try again.</b>",
+                            reply_markup=get_workshop_buttons(step, tot)
+                        )
+        except asyncio.TimeoutError:
             session = get_session(user_id) or {}
             step = session.get("current_step", 0)
             tot = len(session.get("file_history", [1]))
-            await safe_edit_caption_or_text(msg, f"❌ <b>Server Connection Failed:</b> {str(e)}", reply_markup=get_workshop_buttons(step, tot))
+            await safe_edit_caption_or_text(
+                msg,
+                "❌ <b>Link Generation Failed: Server Timeout. Please try again.</b>",
+                reply_markup=get_workshop_buttons(step, tot)
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(f"Pixeldrain Error: {e}")
+            session = get_session(user_id) or {}
+            step = session.get("current_step", 0)
+            tot = len(session.get("file_history", [1]))
+            await safe_edit_caption_or_text(
+                msg,
+                "❌ <b>Link Generation Failed: Server Error. Please try again.</b>",
+                reply_markup=get_workshop_buttons(step, tot)
+            )
         finally:
             if local_path and os.path.exists(local_path):
                 try:
