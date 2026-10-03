@@ -11,7 +11,7 @@ asyncio.set_event_loop(loop)
 # --------------------------------------
 
 import aiohttp
-from aiohttp import web
+from aiohttp import web, FormData
 from pyrogram import Client, filters, idle, errors
 from pyrogram.enums import ParseMode
 from pyrogram.types import (
@@ -25,7 +25,7 @@ from pyrogram.types import (
 from pyrogram.errors import UserNotParticipant
 from PIL import Image
 import firebase_admin
-from firebase_admin import credentials, db, storage
+from firebase_admin import credentials, db
 
 # Logging Configuration
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -62,12 +62,10 @@ try:
         cert_dict = json.loads(FIREBASE_JSON)
         cred = credentials.Certificate(cert_dict)
         db_url = DATABASE_URL or cert_dict.get('databaseURL') or f"https://{cert_dict['project_id']}-default-rtdb.firebaseio.com/"
-        storage_bucket = cert_dict.get('storageBucket') or f"{cert_dict['project_id']}.appspot.com"
         firebase_admin.initialize_app(cred, {
-            'databaseURL': db_url,
-            'storageBucket': storage_bucket
+            'databaseURL': db_url
         })
-        logger.info(f"Firebase successfully initialized with DB: {db_url} and Storage: {storage_bucket}")
+        logger.info(f"Firebase successfully initialized with DB: {db_url}")
     else:
         logger.warning("FIREBASE_JSON missing. Database features will be disabled.")
 except Exception as e:
@@ -284,7 +282,7 @@ def get_welcome_layout(user_id: int, first_name: str) -> str:
 
     return (
         f"✨ <b>Welcome to EditMedia Pro, {first_name}!</b> 👑\n\n"
-        "I am your advanced, high-speed media processing assistant. I can seamlessly resize, compress, convert formats, and generate cloud links with zero quality loss!\n\n"
+        "I am your advanced, high-speed media processing assistant. I can seamlessly resize, compress, convert formats, and host images on Telegraph with zero quality loss!\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "👤 <b>Your Profile:</b>\n"
         f"▫️ <b>Account ID:</b> <code>{user_id}</code>\n"
@@ -639,7 +637,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
                 await safe_edit_caption_or_text(query.message, caption, reply_markup=get_workshop_buttons(step, tot))
         return
 
-    # --- USER CLOUD LINKS PANEL (DIRECTIVE 2) ---
+    # --- DIRECTIVE 2: USER CLOUD LINKS PANEL ---
     if data.startswith("ucloud_page_"):
         page = int(data.split("_")[2])
         data_dict = {}
@@ -654,7 +652,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
                 "☁️ <b>My Cloud Links</b>\n"
                 "━━━━━━━━━━━━━━━━━━━━\n"
                 "<i>You haven't generated any cloud links yet!</i>\n"
-                "Use the 'Generate Cloud Link' tool in the workshop to host files."
+                "Use the 'Generate Cloud Link' tool in the workshop to host your photos."
             )
             return await safe_edit(query, text, InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]]))
 
@@ -664,12 +662,9 @@ async def callback_handler(client: Client, query: CallbackQuery):
         page_items = items[page * PAGE_SIZE : (page + 1) * PAGE_SIZE]
 
         btns = []
-        for item in page_items:
-            fname = item.get("filename", "File")
-            fmt = item.get("format", "FILE")
-            sz = item.get("size", "")
+        for idx, item in enumerate(page_items, start=(page * PAGE_SIZE) + 1):
             pid = item.get("push_id")
-            btns.append([InlineKeyboardButton(f"📁 {fmt} ({sz}) - {fname[:15]}", callback_data=f"ucloud_view_{pid}_{page}")])
+            btns.append([InlineKeyboardButton(f"📁 File {idx}", callback_data=f"ucloud_view_{pid}_{page}")])
 
         nav_row = []
         if page > 0:
@@ -680,7 +675,7 @@ async def callback_handler(client: Client, query: CallbackQuery):
             btns.append(nav_row)
 
         btns.append([InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")])
-        text = f"☁️ <b>My Cloud Links</b> (Page {page + 1}/{total_pages})\n━━━━━━━━━━━━━━━━━━━━\nSelect a file below to view or manage:"
+        text = f"☁️ <b>My Cloud Links</b> (Page {page + 1}/{total_pages})\n━━━━━━━━━━━━━━━━━━━━\nSelect a file below to view details:"
         return await safe_edit(query, text, InlineKeyboardMarkup(btns))
 
     if data.startswith("ucloud_view_"):
@@ -692,12 +687,11 @@ async def callback_handler(client: Client, query: CallbackQuery):
 
         if not meta:
             await query.answer("File record no longer exists.", show_alert=True)
-            return await safe_edit(query, "File not found.", InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data=f"ucloud_page_{page}")]]))
+            return await safe_edit(query, "❌ <b>File record not found.</b>", InlineKeyboardMarkup([[InlineKeyboardButton("« Back to List", callback_data=f"ucloud_page_{page}")]]))
 
         text = (
             "📁 <b>Cloud File Details</b>\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            f"▫️ <b>Name:</b> <code>{meta.get('filename')}</code>\n"
             f"▫️ <b>Format:</b> <code>{meta.get('format')}</code>\n"
             f"▫️ <b>Size:</b> <code>{meta.get('size')}</code>\n"
             f"▫️ <b>Date:</b> <code>{meta.get('date')}</code>\n\n"
@@ -706,53 +700,23 @@ async def callback_handler(client: Client, query: CallbackQuery):
         )
         btns = [
             [InlineKeyboardButton("🔗 Open Link", url=meta.get("public_url"))],
-            [InlineKeyboardButton("🗑️ Request Delete", callback_data=f"ucloud_reqdel_{push_id}_{page}")],
+            [InlineKeyboardButton("🗑️ Remove Link", callback_data=f"ucloud_del_{push_id}_{page}")],
             [InlineKeyboardButton("« Back to List", callback_data=f"ucloud_page_{page}")]
         ]
         return await safe_edit(query, text, InlineKeyboardMarkup(btns))
 
-    if data.startswith("ucloud_reqdel_"):
+    if data.startswith("ucloud_del_"):
         parts = data.split("_")
         push_id, page = parts[2], int(parts[3])
-        meta = {}
         if firebase_admin._apps:
-            meta = db.reference(f"users/{user_id}/cloud_links/{push_id}").get() or {}
+            db.reference(f"users/{user_id}/cloud_links/{push_id}").delete()
+            db.reference(f"admin_cloud_links/{push_id}").delete()
 
-        text = (
-            "⏳ <b>Deletion Request Sent to Admin...</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "Your deletion request has been queued. You can cancel if you change your mind."
-        )
-        btns = [
-            [InlineKeyboardButton("❌ Cancel Request", callback_data=f"ucloud_view_{push_id}_{page}")],
-            [InlineKeyboardButton("« Back to List", callback_data=f"ucloud_page_{page}")]
-        ]
-        await safe_edit(query, text, InlineKeyboardMarkup(btns))
+        text = "✅ <b>Link removed from your history.</b>"
+        btns = [[InlineKeyboardButton("« Back to List", callback_data=f"ucloud_page_{page}")]]
+        return await safe_edit(query, text, InlineKeyboardMarkup(btns))
 
-        # Notify Admin
-        if ADMIN_ID and meta:
-            admin_text = (
-                "⚠️ <b>New Cloud File Deletion Request!</b>\n"
-                "━━━━━━━━━━━━━━━━━━━━\n"
-                f"👤 <b>User:</b> {meta.get('user_name', 'User')} (<code>{user_id}</code>)\n"
-                f"📁 <b>File:</b> <code>{meta.get('filename')}</code>\n"
-                f"▫️ <b>Format:</b> <code>{meta.get('format')}</code>\n"
-                f"▫️ <b>Size:</b> <code>{meta.get('size')}</code>\n"
-                f"▫️ <b>Date:</b> <code>{meta.get('date')}</code>\n\n"
-                f"🔗 <b>Link:</b> {meta.get('public_url')}\n"
-                "━━━━━━━━━━━━━━━━━━━━"
-            )
-            admin_markup = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔗 Open Link", url=meta.get("public_url"))],
-                [InlineKeyboardButton("🗑️ Approve & Delete", callback_data=f"adm_delfile_{push_id}")]
-            ])
-            try:
-                await client.send_message(ADMIN_ID, admin_text, reply_markup=admin_markup)
-            except Exception as e:
-                logger.error(f"Failed to notify admin of delete request: {e}")
-        return
-
-    # --- ADMIN CLOUD MANAGER PANEL (DIRECTIVE 3) ---
+    # --- DIRECTIVE 3: ADMIN CLOUD MANAGER PANEL ---
     if data.startswith("acloud_page_") and user_id == ADMIN_ID:
         page = int(data.split("_")[2])
         data_dict = {}
@@ -803,77 +767,41 @@ async def callback_handler(client: Client, query: CallbackQuery):
 
         if not meta:
             await query.answer("File record no longer exists.", show_alert=True)
-            return await safe_edit(query, "File not found.", InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data=f"acloud_page_{page}")]]))
+            return await safe_edit(query, "❌ <b>File record not found.</b>", InlineKeyboardMarkup([[InlineKeyboardButton("« Back to List", callback_data=f"acloud_page_{page}")]]))
 
         text = (
             "📁 <b>File Details:</b>\n"
-            f"▫️ <b>Name:</b> <code>{meta.get('filename')}</code>\n"
-            f"▫️ <b>Format:</b> <code>{meta.get('format')}</code>\n"
             f"▫️ <b>Size:</b> <code>{meta.get('size')}</code>\n"
-            f"▫️ <b>Date:</b> <code>{meta.get('date')}</code>\n\n"
+            f"▫️ <b>Format:</b> <code>{meta.get('format')}</code>\n"
+            f"▫️ <b>Date:</b> <code>{meta.get('date')}</code>\n"
+            f"▫️ <b>Name:</b> <code>{meta.get('filename')}</code>\n\n"
             "👤 <b>User Details:</b>\n"
             f"▫️ <b>Name:</b> <code>{meta.get('user_name')}</code>\n"
             f"▫️ <b>ID:</b> <code>{meta.get('user_id')}</code>\n\n"
-            f"🔗 <b>Public Link:</b>\n<code>{meta.get('public_url')}</code>\n"
+            f"🔗 <b>Public URL:</b>\n<code>{meta.get('public_url')}</code>\n"
             "━━━━━━━━━━━━━━━━━━━━"
         )
         btns = [
             [InlineKeyboardButton("🔗 Open Link", url=meta.get("public_url"))],
-            [InlineKeyboardButton("🗑️ Delete File", callback_data=f"acloud_del_{push_id}_{page}")],
+            [InlineKeyboardButton("🗑️ Delete Record", callback_data=f"acloud_delrec_{push_id}_{page}")],
             [InlineKeyboardButton("« Back to List", callback_data=f"acloud_page_{page}")]
         ]
         return await safe_edit(query, text, InlineKeyboardMarkup(btns))
 
-    # Admin Direct Delete or Delete Approval Execution
-    if (data.startswith("acloud_del_") or data.startswith("adm_delfile_")) and user_id == ADMIN_ID:
+    if data.startswith("acloud_delrec_") and user_id == ADMIN_ID:
         parts = data.split("_")
-        push_id = parts[2]
-        page = int(parts[3]) if len(parts) > 3 else 0
-
+        push_id, page = parts[2], int(parts[3])
         meta = {}
         if firebase_admin._apps:
             meta = db.reference(f"admin_cloud_links/{push_id}").get() or {}
-
-        if not meta:
-            return await safe_edit(query, "❌ <b>File record already deleted or not found.</b>", InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Cloud Manager", callback_data=f"acloud_page_{page}")]]))
-
-        storage_path = meta.get("storage_path")
-        owner_id = meta.get("user_id")
-
-        # Delete from Firebase Storage in thread
-        def delete_storage_blob():
-            if storage_path:
-                bucket = storage.bucket()
-                blob = bucket.blob(storage_path)
-                if blob.exists():
-                    blob.delete()
-
-        try:
-            await asyncio.to_thread(delete_storage_blob)
-        except Exception as e:
-            logger.error(f"Error deleting blob: {e}")
-
-        # Delete from DB
-        if firebase_admin._apps:
+            target_uid = meta.get("user_id")
+            if target_uid:
+                db.reference(f"users/{target_uid}/cloud_links/{push_id}").delete()
             db.reference(f"admin_cloud_links/{push_id}").delete()
-            if owner_id:
-                db.reference(f"users/{owner_id}/cloud_links/{push_id}").delete()
 
-        # Notify Owner
-        if owner_id:
-            try:
-                await client.send_message(
-                    owner_id,
-                    f"🗑️ <b>Notice:</b> Your cloud file <code>{meta.get('filename')}</code> has been deleted from server storage."
-                )
-            except Exception:
-                pass
-
-        return await safe_edit(
-            query,
-            "✅ <b>File successfully deleted from server.</b>",
-            InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Cloud Manager", callback_data=f"acloud_page_{page}")]])
-        )
+        text = "✅ <b>Record successfully deleted.</b>"
+        btns = [[InlineKeyboardButton("« Back to List", callback_data=f"acloud_page_{page}")]]
+        return await safe_edit(query, text, InlineKeyboardMarkup(btns))
 
     # Refer & Earn
     if data == "show_referral":
@@ -900,13 +828,13 @@ async def callback_handler(client: Client, query: CallbackQuery):
     # Support Menu
     if data == "show_support":
         text = (
-            "📞 sᴜᴘᴘᴏʀᴛ \n"
+            "📞 <b>Support Helpdesk</b>\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            "ɪғ ʏᴏᴜ ʜᴀᴠᴇ ᴀɴʏ ᴘʀᴏʙʟᴇᴍs, ʏᴏᴜ ᴄᴀɴ ᴍᴇssᴀɢᴇ ᴍᴇ.\n\n"
-            "👤 ᴀᴅᴍɪɴ: @DASFAIRSELLER01\n"
-            "🤖 sᴜᴘᴘᴏʀᴛ: @DASASISSTANT_BOT\n"
+            "If you experience any issues or need assistance, feel free to reach out to us.\n\n"
+            "👤 <b>Admin:</b> @DASFAIRSELLER01\n"
+            "🤖 <b>Support Bot:</b> @DASASISSTANT_BOT\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            "ᴄᴏɴᴛɪɴᴜᴇ ᴡɪᴛʜ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ 👇"
+            "Tap below to return to the main dashboard:"
         )
         return await safe_edit(query, text, InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]]))
 
@@ -915,10 +843,10 @@ async def callback_handler(client: Client, query: CallbackQuery):
         text = (
             "📜 <b>Rules & Information</b>\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            "1️⃣ <b>Max File Size:</b> Up to 20MB per file.\n"
+            "1️⃣ <b>Max File Size:</b> Up to 20MB per upload.\n"
             "2️⃣ <b>Sticker Prevention:</b> WEBP & PDF files are automatically handled as documents to protect transparency and prevent unwanted sticker conversions.\n"
             "3️⃣ <b>Credit Policy:</b> Each media transformation consumes 🪙 1 Credit. Earn 🪙 5 Credits for every friend who joins using your referral link.\n"
-            "4️⃣ <b>Cloud Storage:</b> High-speed cloud hosting on dedicated Firebase infrastructure with instant link management.\n"
+            "4️⃣ <b>Cloud Storage:</b> High-speed, permanent image hosting powered directly via Telegraph.\n"
             "━━━━━━━━━━━━━━━━━━━━"
         )
         return await safe_edit(query, text, InlineKeyboardMarkup([[InlineKeyboardButton("« Back to Main Menu", callback_data="go_home")]]))
@@ -1576,11 +1504,25 @@ async def process_image_pdf(client: Client, msg: Message, user_id: int):
     finally:
         USER_STATES[user_id]["active_task"] = None
 
-# --- DIRECTIVE 1: HIGH-SPEED FIREBASE STORAGE ENGINE ---
+# --- DIRECTIVE 1: TELEGRAPH IMAGE HOSTING ENGINE ---
 async def process_image_link(client: Client, msg: Message, user_id: int):
     active_file = get_current_active_file(user_id)
     if not active_file:
         await client.send_message(user_id, "❌ <b>No active image found. Please upload an image first.</b>")
+        return
+
+    # Check format suitability for Telegraph
+    raw_fmt = active_file.get("format", "").upper()
+    is_doc = active_file.get("is_doc", False)
+    if is_doc or raw_fmt in ["PDF", "DOC", "DOCX", "ZIP", "RAR", "TAR", "7Z"]:
+        session = get_session(user_id) or {}
+        step = session.get("current_step", 0)
+        tot = len(session.get("file_history", [1]))
+        await safe_edit_caption_or_text(
+            msg,
+            "❌ <b>Cloud Links are only supported for Images.</b> Please convert your file to JPG/PNG first.",
+            reply_markup=get_workshop_buttons(step, tot)
+        )
         return
 
     credits_val, _ = get_user_credits_and_refs(user_id)
@@ -1603,54 +1545,95 @@ async def process_image_link(client: Client, msg: Message, user_id: int):
         f"▫️ <b>Format:</b> <code>{active_file.get('format')}</code>\n"
         f"▫️ <b>Size:</b> <code>{active_file.get('size')}</code>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "⏳ <i>Uploading to Firebase Cloud Storage...</i>"
+        "⏳ <i>Uploading to Telegraph Cloud...</i>"
     )
 
     await safe_edit_caption_or_text(msg, status_text, reply_markup=cancel_markup)
 
     async def _upload_task():
-        local_path = await client.download_media(active_file["file_id"], in_memory=False)
+        local_path = await client.download_media(active_file["file_id"])
+        prep_path = None
         try:
-            ext = active_file.get("format", "jpg").lower()
-            if ext == "jpeg":
-                ext = "jpg"
             timestamp = int(asyncio.get_event_loop().time())
-            filename = f"file_{timestamp}.{ext}"
-            storage_path = f"cloud_links/{user_id}/{filename}"
+            
+            # Prepare image format and enforce < 4.5MB for Telegraph
+            def prepare_for_telegraph(path: str) -> str:
+                target_path = f"telegraph_{user_id}_{timestamp}.jpg"
+                with Image.open(path) as img:
+                    img_fmt = str(img.format).upper() if img.format else "JPEG"
+                    cur_size = os.path.getsize(path)
 
-            def upload_to_storage():
-                bucket = storage.bucket()
-                blob = bucket.blob(storage_path)
-                blob.upload_from_filename(local_path)
-                blob.make_public()
-                return blob.public_url
+                    # If already JPEG or PNG and under 4.5MB (4,718,592 bytes), preserve as-is
+                    if img_fmt in ["JPEG", "JPG", "PNG"] and cur_size <= 4.5 * 1024 * 1024:
+                        ext = "png" if img_fmt == "PNG" else "jpg"
+                        target_path = f"telegraph_{user_id}_{timestamp}.{ext}"
+                        img.save(target_path, format="PNG" if ext == "png" else "JPEG", optimize=True)
+                        return target_path
 
-            public_url = await asyncio.to_thread(upload_to_storage)
+                    # Convert to RGB JPEG and compress aggressively if oversized
+                    if img.mode in ("RGBA", "P"):
+                        img = img.convert("RGB")
+                    
+                    quality = 90
+                    img.save(target_path, format="JPEG", quality=quality, optimize=True)
+                    while os.path.getsize(target_path) > 4.5 * 1024 * 1024 and quality > 15:
+                        quality -= 15
+                        img.save(target_path, format="JPEG", quality=quality, optimize=True)
+
+                    # Downscale dimensions if still over 4.5MB
+                    if os.path.getsize(target_path) > 4.5 * 1024 * 1024:
+                        w, h = img.size
+                        img_resized = img.resize((w // 2, h // 2), Image.Resampling.LANCZOS)
+                        img_resized.save(target_path, format="JPEG", quality=75, optimize=True)
+
+                return target_path
+
+            prep_path = await asyncio.to_thread(prepare_for_telegraph, local_path)
+
+            # High-speed upload to Telegraph via aiohttp
+            public_url = None
+            async with aiohttp.ClientSession() as session:
+                data = FormData()
+                with open(prep_path, "rb") as f:
+                    file_bytes = f.read()
+                data.add_field("file", file_bytes, filename=os.path.basename(prep_path))
+
+                async with session.post("https://telegra.ph/upload", data=data) as resp:
+                    if resp.status != 200:
+                        raise Exception(f"Telegraph HTTP {resp.status}")
+                    result = await resp.json()
+                    if isinstance(result, list) and len(result) > 0 and "src" in result[0]:
+                        public_url = f"https://telegra.ph{result[0]['src']}"
+                    elif isinstance(result, dict) and "error" in result:
+                        raise Exception(result["error"])
+                    else:
+                        raise Exception("Invalid response from Telegraph")
 
             # Record Metadata in Realtime Database
             push_id = None
+            date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            fname = os.path.basename(prep_path)
+            _, prep_fmt, prep_sz = get_media_stats(prep_path)
+
+            user_name = "User"
+            try:
+                user_obj = await client.get_users(user_id)
+                user_name = user_obj.first_name or "User"
+            except Exception:
+                pass
+
             if firebase_admin._apps:
                 push_ref = db.reference(f"users/{user_id}/cloud_links").push()
                 push_id = push_ref.key
-                date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-                user_name = "User"
-                try:
-                    user_obj = await client.get_users(user_id)
-                    user_name = user_obj.first_name or "User"
-                except Exception:
-                    pass
-
                 meta = {
                     "push_id": push_id,
-                    "filename": filename,
-                    "format": active_file.get("format", ext.upper()),
-                    "size": active_file.get("size", "0 KB"),
+                    "filename": fname,
+                    "format": prep_fmt,
+                    "size": prep_sz,
                     "date": date_str,
                     "public_url": public_url,
                     "user_id": user_id,
-                    "user_name": user_name,
-                    "storage_path": storage_path
+                    "user_name": user_name
                 }
                 push_ref.set(meta)
                 db.reference(f"admin_cloud_links/{push_id}").set(meta)
@@ -1661,8 +1644,8 @@ async def process_image_link(client: Client, msg: Message, user_id: int):
                 "━━━━━━━━━━━━━━━━━━━━\n"
                 "📁 <b>Active File Details:</b>\n"
                 f"▫️ <b>Resolution/Name:</b> <code>{active_file.get('details')}</code>\n"
-                f"▫️ <b>Format:</b> <code>{active_file.get('format')}</code>\n"
-                f"▫️ <b>Size:</b> <code>{active_file.get('size')}</code>\n"
+                f"▫️ <b>Format:</b> <code>{prep_fmt}</code>\n"
+                f"▫️ <b>Size:</b> <code>{prep_sz}</code>\n"
                 "━━━━━━━━━━━━━━━━━━━━\n"
                 f"🔗 <b>Public Link:</b> <code>{public_url}</code>"
             )
@@ -1673,10 +1656,11 @@ async def process_image_link(client: Client, msg: Message, user_id: int):
                 [InlineKeyboardButton("🎨 Edit Another File", callback_data="ask_photo"), InlineKeyboardButton("« Main Menu", callback_data="go_home")]
             ]
             await safe_edit_caption_or_text(msg, caption, reply_markup=InlineKeyboardMarkup(btns))
+
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            logger.error(f"Firebase Storage Error: {e}")
+            logger.error(f"Telegraph Upload Error: {e}")
             session = get_session(user_id) or {}
             step = session.get("current_step", 0)
             tot = len(session.get("file_history", [1]))
@@ -1686,11 +1670,12 @@ async def process_image_link(client: Client, msg: Message, user_id: int):
                 reply_markup=get_workshop_buttons(step, tot)
             )
         finally:
-            if local_path and os.path.exists(local_path):
-                try:
-                    os.remove(local_path)
-                except Exception:
-                    pass
+            for f in [local_path, prep_path]:
+                if f and os.path.exists(f):
+                    try:
+                        os.remove(f)
+                    except Exception:
+                        pass
 
     task = asyncio.create_task(_upload_task())
     USER_STATES[user_id]["active_task"] = task
