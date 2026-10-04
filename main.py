@@ -1,11 +1,7 @@
 import os
 import threading
-import asyncio
 import requests
 from flask import Flask, render_template, jsonify
-from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
-from pyrogram.enums import ParseMode
 
 # ==========================================
 # ১. FLASK WEB APP (আসল এডিটর ওয়েবসাইট)
@@ -21,30 +17,32 @@ def process_upload():
     return jsonify({"success": True, "message": "Website connected!"})
 
 # ==========================================
-# ২. PYROGRAM BOT (সল্যুশন: Thread-এর ভেতরে)
+# ২. PYROGRAM BOT (Gunicorn-এর চোখ থেকে লুকানো)
 # ==========================================
 def run_bot():
-    # ১. থ্রেডের জন্য নতুন ইভেন্ট লুপ তৈরি (Gunicorn-এর আর কোনো সমস্যা হবে না)
+    import asyncio
+    # ১. এই থ্রেডের জন্য নতুন ইভেন্ট লুপ তৈরি (যাতে ক্র্যাশ না করে)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+    
+    # ২. Pyrogram-কে থ্রেডের ভেতরে ইম্পোর্ট করা হলো (এটাই আসল ম্যাজিক)
+    from pyrogram import Client, filters
+    from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+    from pyrogram.enums import ParseMode
 
-    # ২. ভেরিয়েবলগুলো নেওয়া
     API_ID = os.environ.get("API_ID")
     API_HASH = os.environ.get("API_HASH")
     BOT_TOKEN = os.environ.get("BOT_TOKEN")
     WEBAPP_URL = os.environ.get("WEBAPP_URL", "https://google.com")
 
-    if not API_ID or not BOT_TOKEN:
-        print("ERROR: API_ID or BOT_TOKEN is missing in Render!")
-        return
-
     # ৩. পুরোনো ওয়েবহুক ক্লিয়ার করা (যাতে বট হ্যাং না হয়ে থাকে)
     try:
-        requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook")
+        if BOT_TOKEN:
+            requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook")
     except:
         pass
 
-    # ৪. লুপ সেট করার পর ক্লায়েন্ট তৈরি (এটাই আসল জাদু)
+    # ৪. বট ক্লায়েন্ট তৈরি
     bot = Client(":memory:", api_id=int(API_ID), api_hash=API_HASH, bot_token=BOT_TOKEN)
 
     @bot.on_message(filters.command("start") & filters.private)
