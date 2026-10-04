@@ -1,5 +1,6 @@
 import os
 import threading
+import time
 import requests
 from flask import Flask, render_template, jsonify
 
@@ -17,15 +18,13 @@ def process_upload():
     return jsonify({"success": True, "message": "Website connected!"})
 
 # ==========================================
-# ২. PYROGRAM BOT (Gunicorn-এর চোখ থেকে লুকানো)
+# ২. PYROGRAM BOT (বিনা signal-এ চালানোর ম্যাজিক)
 # ==========================================
 def run_bot():
     import asyncio
-    # ১. এই থ্রেডের জন্য নতুন ইভেন্ট লুপ তৈরি (যাতে ক্র্যাশ না করে)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
-    # ২. Pyrogram-কে থ্রেডের ভেতরে ইম্পোর্ট করা হলো (এটাই আসল ম্যাজিক)
     from pyrogram import Client, filters
     from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
     from pyrogram.enums import ParseMode
@@ -35,14 +34,13 @@ def run_bot():
     BOT_TOKEN = os.environ.get("BOT_TOKEN")
     WEBAPP_URL = os.environ.get("WEBAPP_URL", "https://google.com")
 
-    # ৩. পুরোনো ওয়েবহুক ক্লিয়ার করা (যাতে বট হ্যাং না হয়ে থাকে)
+    # পুরোনো ওয়েবহুক ক্লিয়ার করা
     try:
         if BOT_TOKEN:
             requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook")
     except:
         pass
 
-    # ৪. বট ক্লায়েন্ট তৈরি
     bot = Client(":memory:", api_id=int(API_ID), api_hash=API_HASH, bot_token=BOT_TOKEN)
 
     @bot.on_message(filters.command("start") & filters.private)
@@ -57,8 +55,13 @@ def run_bot():
         )
         message.reply_text(welcome_msg, reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
+    # ম্যাজিক: bot.run() এর বদলে bot.start() ব্যবহার করছি যাতে signal error না আসে
+    bot.start()
     print("--- TELEGRAM BOT IS RUNNING PERFECTLY ---")
-    bot.run()
+    
+    # থ্রেডটাকে বাঁচিয়ে রাখার জন্য ম্যানুয়াল ইনফিনিট লুপ
+    while True:
+        time.sleep(1)
 
 # ফ্লাস্ক চালু হওয়ার সাথে সাথে বট থ্রেড চালু করা হচ্ছে
 threading.Thread(target=run_bot, daemon=True).start()
