@@ -1,6 +1,14 @@
 import os
 import threading
-import asyncio  # এই মডিউলটি যোগ করা হয়েছে
+import asyncio
+
+# --- MAIN THREAD EVENT LOOP FIX (এটাই আসল জাদু) ---
+try:
+    asyncio.get_event_loop()
+except RuntimeError:
+    asyncio.set_event_loop(asyncio.new_event_loop())
+# --------------------------------------------------
+
 from flask import Flask, render_template, request, jsonify
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
@@ -13,12 +21,10 @@ app = Flask(__name__)
 
 @app.route('/')
 def index():
-    # এটি আপনার templates/index.html ফাইলটি ওয়েবসাইটের জন্য লোড করবে
     return render_template('index.html')
 
 @app.route('/api/upload', methods=['POST'])
 def process_upload():
-    # এখানে পরে ImgBB আপলোড এবং ফায়ারবেসের লজিক বসানো হবে
     return jsonify({"success": True, "message": "Website connected!"})
 
 # ==========================================
@@ -37,7 +43,7 @@ bot = Client("GatekeeperBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TO
 def start_command(client, message):
     # ওয়েবসাইটের বাটন (Mini App)
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🖥️ Open Editor", web_app=WebAppInfo(url=WEBAPP_URL))]
+        [InlineKeyboardButton("🖥️️ Open Editor", web_app=WebAppInfo(url=WEBAPP_URL))]
     ])
     
     welcome_msg = (
@@ -50,10 +56,8 @@ def start_command(client, message):
 # ৩. বট এবং ওয়েবসাইট একসাথে চালানোর ম্যাজিক
 # ==========================================
 def run_bot():
-    # --- ইভেন্ট লুপ এরর ফিক্স ---
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    
     print("Bot is starting...")
     bot.run()
 
