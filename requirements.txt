@@ -1,5 +1,6 @@
-pyrogram
-tgcrypto
-pillow
-aiohttp
-firebase-admin
+Flask==3.0.0
+Werkzeug==3.0.1
+Pillow==10.0.1
+requests==2.31.0
+firebase-admin==6.2.0
+gunicorn==21.2.0
