@@ -1,8 +1,11 @@
 import os
 import threading
-import time
+import asyncio
 import requests
 from flask import Flask, render_template, jsonify
+from pyrogram import Client, filters
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from pyrogram.enums import ParseMode
 
 # ==========================================
 # ১. FLASK WEB APP (আসল এডিটর ওয়েবসাইট)
@@ -18,33 +21,31 @@ def process_upload():
     return jsonify({"success": True, "message": "Website connected!"})
 
 # ==========================================
-# ২. PYROGRAM BOT (বিনা signal-এ চালানোর ম্যাজিক)
+# ২. PYROGRAM BOT (100% Working Async Loop)
 # ==========================================
 def run_bot():
-    import asyncio
+    # ১. এই থ্রেডের জন্য নতুন ইভেন্ট লুপ তৈরি
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
-    from pyrogram import Client, filters
-    from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
-    from pyrogram.enums import ParseMode
-
     API_ID = os.environ.get("API_ID")
     API_HASH = os.environ.get("API_HASH")
     BOT_TOKEN = os.environ.get("BOT_TOKEN")
     WEBAPP_URL = os.environ.get("WEBAPP_URL", "https://google.com")
 
-    # পুরোনো ওয়েবহুক ক্লিয়ার করা
+    # পুরোনো ওয়েবহুক ক্লিয়ার (যাতে বট হ্যাং না থাকে)
     try:
         if BOT_TOKEN:
             requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook")
     except:
         pass
 
+    # বট ক্লায়েন্ট তৈরি
     bot = Client(":memory:", api_id=int(API_ID), api_hash=API_HASH, bot_token=BOT_TOKEN)
 
+    # ২. Pyrogram v2 অনুযায়ী ফাংশন অবশ্যই 'async def' হতে হবে
     @bot.on_message(filters.command("start") & filters.private)
-    def start_command(client, message):
+    async def start_command(client, message):
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🖥 Open Editor", web_app=WebAppInfo(url=WEBAPP_URL))]
         ])
@@ -53,15 +54,18 @@ def run_bot():
             "👋 <b>Welcome to EditMedia Pro!</b>\n\n"
             "সব এডিটিং এখন আমাদের নতুন প্রো-ওয়েবসাইটে হবে। নিচে <b>'Open Editor'</b> বাটনে ক্লিক করুন!"
         )
-        message.reply_text(welcome_msg, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+        # মেসেজ পাঠানোর আগে 'await' দেওয়া বাধ্যতামূলক
+        await message.reply_text(welcome_msg, reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
-    # ম্যাজিক: bot.run() এর বদলে bot.start() ব্যবহার করছি যাতে signal error না আসে
-    bot.start()
-    print("--- TELEGRAM BOT IS RUNNING PERFECTLY ---")
-    
-    # থ্রেডটাকে বাঁচিয়ে রাখার জন্য ম্যানুয়াল ইনফিনিট লুপ
-    while True:
-        time.sleep(1)
+    # ৩. সিগন্যাল ছাড়াই বটকে জ্যান্ত রাখার আসল ম্যাজিক
+    async def start_and_keep_alive():
+        await bot.start()
+        print("--- 🚀 TELEGRAM BOT IS ALIVE AND LISTENING ---")
+        while True:
+            await asyncio.sleep(1) # এই অ্যাসিঙ্ক্রোনাস ঘুম বটকে ব্লক করবে না
+
+    # ৪. লুপ চালু করা হলো
+    loop.run_until_complete(start_and_keep_alive())
 
 # ফ্লাস্ক চালু হওয়ার সাথে সাথে বট থ্রেড চালু করা হচ্ছে
 threading.Thread(target=run_bot, daemon=True).start()
