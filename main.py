@@ -1,5 +1,6 @@
 import os
 import threading
+import asyncio  # এই মডিউলটি যোগ করা হয়েছে
 from flask import Flask, render_template, request, jsonify
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
@@ -23,11 +24,11 @@ def process_upload():
 # ==========================================
 # ২. PYROGRAM BOT (পাহারাদার বা গেটকিপার)
 # ==========================================
-API_ID = int(os.getenv("API_ID", "2040"))  # আপনার API ID দিন
+API_ID = int(os.getenv("API_ID", "2040"))
 API_HASH = os.getenv("API_HASH", "b18441a1ff607e10a989891a5462e627")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 
-# রেন্ডার থেকে পাওয়া আপনার ওয়েবসাইটের লিংক (যেমন: https://editmedia-webapp.onrender.com)
+# রেন্ডার থেকে পাওয়া আপনার ওয়েবসাইটের লিংক
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://google.com") 
 
 bot = Client("GatekeeperBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
@@ -49,10 +50,14 @@ def start_command(client, message):
 # ৩. বট এবং ওয়েবসাইট একসাথে চালানোর ম্যাজিক
 # ==========================================
 def run_bot():
+    # --- ইভেন্ট লুপ এরর ফিক্স ---
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
     print("Bot is starting...")
     bot.run()
 
-# ব্যাকগ্রাউন্ডে বট চালু করা হচ্ছে, যাতে ওয়েবসাইট ব্লক না হয়
+# ব্যাকগ্রাউন্ডে বট চালু করা হচ্ছে
 threading.Thread(target=run_bot, daemon=True).start()
 
 if __name__ == '__main__':
