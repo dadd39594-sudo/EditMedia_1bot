@@ -1,12 +1,11 @@
 import os
-import sys
 import subprocess
 from flask import Flask, render_template, jsonify
 
 app = Flask(__name__)
 
 # ==========================================
-# ১. FLASK WEB APP 
+# ১. FLASK WEB APP
 # ==========================================
 @app.route('/')
 def index():
@@ -24,27 +23,27 @@ def view_log():
     try:
         with open("bot_debug.log", "r", encoding="utf-8") as f:
             logs = f.read()
-        return f"<h1>Bot CCTV Logs:</h1><pre style='font-size: 16px; color: green;'>{logs}</pre>"
+        return f"<h1>Bot CCTV Logs:</h1><pre style='font-size: 15px; color: red;'>{logs}</pre>"
     except Exception as e:
-        return f"Log file is not ready yet. Please refresh after 10 seconds. Error: {e}"
+        return f"Log file error: {e}"
 
 # ==========================================
-# ৩. PYROGRAM BOT (সম্পূর্ণ আলাদা স্ক্রিপ্ট)
+# ৩. PYROGRAM BOT (লগ ট্র্যাপ সহ)
 # ==========================================
 bot_code = """
 import os
-import logging
 import requests
-from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+import sys
 
-# বটের প্রতিটি কাজের রেকর্ড রাখা হচ্ছে
-logging.basicConfig(
-    filename='bot_debug.log', 
-    level=logging.INFO, 
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logging.info("✅ Bot script started successfully!")
+print("✅ Bot script is starting...", flush=True)
+
+try:
+    from pyrogram import Client, filters
+    from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+    print("✅ Pyrogram imported successfully!", flush=True)
+except ImportError as e:
+    print(f"❌ MODULE ERROR: {e}", flush=True)
+    sys.exit(1)
 
 try:
     API_ID = os.environ.get("API_ID")
@@ -52,36 +51,38 @@ try:
     BOT_TOKEN = os.environ.get("BOT_TOKEN")
     WEBAPP_URL = os.environ.get("WEBAPP_URL", "https://google.com")
 
-    logging.info(f"API_ID Found: {'Yes' if API_ID else 'No'}")
-    logging.info(f"API_HASH Found: {'Yes' if API_HASH else 'No'}")
-    logging.info(f"BOT_TOKEN Found: {'Yes' if BOT_TOKEN else 'No'}")
+    print(f"API_ID Found: {'Yes' if API_ID else 'No'}", flush=True)
+    print(f"API_HASH Found: {'Yes' if API_HASH else 'No'}", flush=True)
+    print(f"BOT_TOKEN Found: {'Yes' if BOT_TOKEN else 'No'}", flush=True)
 
     if BOT_TOKEN:
         res = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook").json()
-        logging.info(f"Webhook Status: {res}")
+        print(f"Webhook Status: {res}", flush=True)
 
     bot = Client(":memory:", api_id=int(API_ID), api_hash=API_HASH, bot_token=BOT_TOKEN)
 
     @bot.on_message(filters.command("start"))
     async def start_command(client, message):
-        logging.info(f"📥 Received /start from user: {message.from_user.id}")
+        print(f"📥 Received /start from user: {message.from_user.id}", flush=True)
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🖥 Open Editor", web_app=WebAppInfo(url=WEBAPP_URL))]
         ])
         await message.reply_text("👋 Welcome to EditMedia Pro!", reply_markup=keyboard)
-        logging.info("📤 Reply sent successfully!")
+        print("📤 Reply sent successfully!", flush=True)
 
-    logging.info("🚀 Starting bot.run()...")
+    print("🚀 Starting bot.run()...", flush=True)
     bot.run()
 except Exception as e:
-    logging.error(f"❌ CRITICAL ERROR: {e}")
+    print(f"❌ CRITICAL ERROR: {e}", flush=True)
 """
 
+# বট ফাইলটি তৈরি করা হচ্ছে
 with open("bot.py", "w", encoding="utf-8") as f:
     f.write(bot_code)
 
-# রেন্ডারের একদম সঠিক পাইথন ইঞ্জিন দিয়ে বট চালু করা
-subprocess.Popen([sys.executable, "bot.py"])
+# ফ্লাস্ক ওয়েবসাইটই লগ ফাইল তৈরি করে বটের সমস্ত আউটপুট সেখানে রেকর্ড করবে
+log_file = open("bot_debug.log", "w", encoding="utf-8")
+subprocess.Popen(["python", "bot.py"], stdout=log_file, stderr=subprocess.STDOUT)
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
