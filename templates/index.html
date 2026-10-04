@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>EditMedia Pro - Photoshop Mini App</title>
+  <!-- Telegram WebApp SDK -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <!-- Google Fonts & FontAwesome -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <!-- App Styles -->
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="ps-app">
+    <!-- Top Bar -->
+    <header class="ps-header">
+      <div class="ps-brand">
+        <div class="ps-logo">Ps</div>
+        <span class="ps-app-title">EditMedia <span class="ps-accent">Pro</span></span>
+      </div>
+      <div class="ps-user" id="user-badge">
+        <div class="ps-avatar" id="user-avatar"><i class="fa-solid fa-user"></i></div>
+        <div class="ps-user-meta">
+          <span class="ps-username" id="user-name">Guest</span>
+          <span class="ps-credits"><i class="fa-solid fa-coins"></i> <span id="credit-count">--</span></span>
+        </div>
+      </div>
+    </header>
+
+    <!-- App Body (Toolbar + Canvas + Inspector Panel) -->
+    <div class="ps-workspace">
+      <!-- Left Tool Dock -->
+      <aside class="ps-toolbar" role="toolbar" aria-label="Toolbox">
+        <button class="ps-tool-btn active" data-tool="select" title="Selection & Info">
+          <i class="fa-solid fa-arrow-pointer"></i>
+          <span>Select</span>
+        </button>
+        <button class="ps-tool-btn" data-tool="cloud" title="Upload to Cloud (ImgBB)">
+          <i class="fa-solid fa-cloud-arrow-up"></i>
+          <span>Cloud</span>
+        </button>
+        <button class="ps-tool-btn" data-tool="resize" title="Resize Image">
+          <i class="fa-solid fa-up-right-and-down-left-from-center"></i>
+          <span>Resize</span>
+        </button>
+        <button class="ps-tool-btn" data-tool="compress" title="Compress Image">
+          <i class="fa-solid fa-file-zipper"></i>
+          <span>Compress</span>
+        </button>
+        <button class="ps-tool-btn" data-tool="convert" title="Format Converter">
+          <i class="fa-solid fa-scissors"></i>
+          <span>Convert</span>
+        </button>
+        <button class="ps-tool-btn" data-tool="pdf" title="Convert to PDF">
+          <i class="fa-solid fa-file-pdf"></i>
+          <span>PDF</span>
+        </button>
+      </aside>
+
+      <!-- Center Stage: Main Canvas Area -->
+      <main class="ps-canvas-stage">
+        <!-- Canvas Status / Properties Bar -->
+        <div class="ps-canvas-infobar" id="file-infobar" style="display: none;">
+          <span id="info-name"><i class="fa-regular fa-image"></i> image.png</span>
+          <span class="ps-divider">|</span>
+          <span id="info-res">0x0 px</span>
+          <span class="ps-divider">|</span>
+          <span id="info-size">0 KB</span>
+          <button class="ps-btn-icon-danger" id="btn-remove-file" title="Remove image">
+            <i class="fa-solid fa-trash-can"></i>
+          </button>
+        </div>
+
+        <!-- Dropzone / Canvas Container -->
+        <div class="ps-dropzone" id="dropzone">
+          <input type="file" id="file-input" accept="image/png, image/jpeg, image/webp" hidden />
+          
+          <div class="ps-dropzone-prompt" id="dropzone-prompt">
+            <div class="ps-drop-icon">
+              <i class="fa-solid fa-cloud-arrow-up"></i>
+            </div>
+            <h3>Drag & Drop media here</h3>
+            <p>PNG, JPG, or WEBP (Max 20MB)</p>
+            <button type="button" class="ps-btn ps-btn-primary" id="btn-browse">
+              <i class="fa-solid fa-folder-open"></i> Browse Files
+            </button>
+          </div>
+
+          <div class="ps-preview-wrapper" id="preview-wrapper" style="display: none;">
+            <img id="preview-image" src="" alt="Active Canvas Layer" />
+          </div>
+
+          <!-- Spinner overlay for async tasks -->
+          <div class="ps-loader-overlay" id="loader-overlay" style="display: none;">
+            <div class="ps-spinner"></div>
+            <p id="loader-text">Processing image layers...</p>
+          </div>
+        </div>
+
+        <!-- Result / Output Notification Strip -->
+        <div class="ps-output-drawer" id="output-drawer" style="display: none;">
+          <div class="ps-output-info">
+            <i class="fa-solid fa-circle-check ps-success-icon"></i>
+            <div class="ps-output-text">
+              <h4 id="output-title">Action Completed!</h4>
+              <p id="output-desc">Your processed asset is ready.</p>
+            </div>
+          </div>
+          <div class="ps-output-actions">
+            <a href="#" target="_blank" class="ps-btn ps-btn-accent" id="btn-result-link" style="display: none;">
+              <i class="fa-solid fa-arrow-up-right-from-square"></i> Open
+            </a>
+            <button class="ps-btn ps-btn-secondary" id="btn-copy-link" style="display: none;">
+              <i class="fa-regular fa-copy"></i> Copy
+            </button>
+            <a href="#" download="edited-media" class="ps-btn ps-btn-primary" id="btn-download" style="display: none;">
+              <i class="fa-solid fa-download"></i> Save
+            </a>
+          </div>
+        </div>
+      </main>
+
+      <!-- Right/Bottom Options Inspector -->
+      <aside class="ps-options-panel" id="options-panel">
+        <div class="ps-panel-header">
+          <span id="panel-title">Tool Options</span>
+        </div>
+
+        <!-- Panel Form for Tool Configurations -->
+        <div class="ps-panel-content">
+          <!-- Selection Mode Info -->
+          <div class="ps-tool-options" id="opt-select">
+            <p class="ps-muted">Select an operation from the toolbar on the left to configure adjustments.</p>
+          </div>
+
+          <!-- Cloud Upload Panel -->
+          <div class="ps-tool-options" id="opt-cloud" style="display: none;">
+            <label class="ps-label">Cloud Destination</label>
+            <p class="ps-muted">Instant, permanent CDN image hosting powered by ImgBB.</p>
+            <button class="ps-btn ps-btn-accent w-100" id="btn-exec-cloud">
+              <i class="fa-solid fa-bolt"></i> Upload to ImgBB
+            </button>
+          </div>
+
+          <!-- Resize Panel -->
+          <div class="ps-tool-options" id="opt-resize" style="display: none;">
+            <label class="ps-label">Presets</label>
+            <div class="ps-btn-grid">
+              <button type="button" class="ps-btn-sm" data-res="1080x1080">1:1 Square</button>
+              <button type="button" class="ps-btn-sm" data-res="1280x720">720p HD</button>
+              <button type="button" class="ps-btn-sm" data-res="1920x1080">1080p FHD</button>
+              <button type="button" class="ps-btn-sm" data-res="3840x2160">4K UHD</button>
+            </div>
+
+            <div class="ps-grid-2">
+              <div class="ps-input-field">
+                <label>Width (px)</label>
+                <input type="number" id="resize-w" min="1" max="10000" placeholder="1920" />
+              </div>
+              <div class="ps-input-field">
+                <label>Height (px)</label>
+                <input type="number" id="resize-h" min="1" max="10000" placeholder="1080" />
+              </div>
+            </div>
+
+            <label class="ps-checkbox-label">
+              <input type="checkbox" id="resize-aspect" checked />
+              <span>Lock Aspect Ratio</span>
+            </label>
+
+            <button class="ps-btn ps-btn-accent w-100 mt-2" id="btn-exec-resize">
+              Apply Resizing
+            </button>
+          </div>
+
+          <!-- Compress Panel -->
+          <div class="ps-tool-options" id="opt-compress" style="display: none;">
+            <label class="ps-label" for="compress-quality">Quality Compression: <span id="quality-val" class="ps-accent">80%</span></label>
+            <input type="range" id="compress-quality" min="10" max="100" value="80" class="ps-slider" />
+
+            <div class="ps-btn-grid mt-2">
+              <button type="button" class="ps-btn-sm" data-qual="80">Light (80%)</button>
+              <button type="button" class="ps-btn-sm" data-qual="50">Balanced (50%)</button>
+              <button type="button" class="ps-btn-sm" data-qual="20">Aggressive (20%)</button>
+            </div>
+
+            <button class="ps-btn ps-btn-accent w-100 mt-3" id="btn-exec-compress">
+              Apply Compression
+            </button>
+          </div>
+
+          <!-- Format Converter Panel -->
+          <div class="ps-tool-options" id="opt-convert" style="display: none;">
+            <label class="ps-label" for="convert-format">Target Format</label>
+            <select id="convert-format" class="ps-select">
+              <option value="png">PNG (Portable Network Graphics)</option>
+              <option value="jpeg">JPG / JPEG (Standard Image)</option>
+              <option value="webp">WEBP (High Efficiency Web)</option>
+            </select>
+            <button class="ps-btn ps-btn-accent w-100 mt-3" id="btn-exec-convert">
+              Execute Conversion
+            </button>
+          </div>
+
+          <!-- PDF Panel -->
+          <div class="ps-tool-options" id="opt-pdf" style="display: none;">
+            <label class="ps-label">Document Settings</label>
+            <p class="ps-muted">Converts this active layer into a printable, flattened PDF file.</p>
+            <button class="ps-btn ps-btn-accent w-100 mt-2" id="btn-exec-pdf">
+              <i class="fa-solid fa-file-pdf"></i> Generate PDF
+            </button>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script src="/static/script.js"></script>
+</body>
+</html>
