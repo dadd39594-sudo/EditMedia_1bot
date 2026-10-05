@@ -25,7 +25,7 @@ def view_log():
         return f"Log file error: {e}"
 
 # ==========================================
-# ২. PYROGRAM BOT
+# ২. TELEBOT (pyTelegramBotAPI) BOT
 # ==========================================
 bot_code = r"""
 import os
@@ -34,6 +34,7 @@ import json
 import html
 import urllib.parse
 import asyncio
+import time
 from datetime import datetime
 import requests
 import inspect
@@ -45,26 +46,24 @@ try:
     asyncio.get_event_loop()
 except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
-print("✅ Asyncio loop initialized before Pyrogram!", flush=True)
+print("✅ Asyncio loop initialized before Telebot!", flush=True)
 # -----------------------------------------------------
 
 try:
-    from pyrogram import Client, filters, enums
-    from pyrogram.types import (
+    import telebot
+    from telebot.types import (
         InlineKeyboardMarkup,
         InlineKeyboardButton,
-        WebAppInfo,
-        CallbackQuery,
-        Message
+        WebAppInfo
     )
     import firebase_admin
     from firebase_admin import credentials, firestore
-    print("✅ Pyrogram & Firebase libraries loaded!", flush=True)
+    print("✅ Telebot & Firebase libraries loaded!", flush=True)
 except Exception as e:
     print(f"❌ MODULE ERROR: {e}", flush=True)
     sys.exit(1)
 
-# Ensure InlineKeyboardButton accepts Telegram API 9.4 'style' across all Pyrogram versions
+# Ensure InlineKeyboardButton accepts Telegram API 9.4 'style' across all Telebot versions
 try:
     _sig = inspect.signature(InlineKeyboardButton.__init__)
     if "style" not in _sig.parameters and not any(p.kind == inspect.Parameter.VAR_KEYWORD for p in _sig.parameters.values()):
@@ -95,8 +94,6 @@ except Exception as e:
     db = None
 
 # Configuration
-API_ID = os.environ.get("API_ID")
-API_HASH = os.environ.get("API_HASH")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 WEBAPP_URL = os.environ.get("WEBAPP_URL", "https://google.com")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
@@ -108,7 +105,7 @@ if BOT_TOKEN:
     except Exception as e:
         print(f"⚠️ Could not clear webhook: {e}", flush=True)
 
-bot = Client(":memory:", api_id=int(API_ID), api_hash=API_HASH, bot_token=BOT_TOKEN)
+bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
 # State trackers
 admin_states = {}
@@ -138,17 +135,16 @@ def is_user_banned(user_id):
     return bool(data.get("is_banned", False)) if data else False
 
 def build_main_keyboard(user_id):
-    buttons = [
-        [InlineKeyboardButton("🖥 Open Web App", web_app=WebAppInfo(url=WEBAPP_URL), style="primary")],
-        [
-            InlineKeyboardButton("📖 How to Use", callback_data="how_to_use", style="primary"),
-            InlineKeyboardButton("🎁 Refer & Earn", callback_data="refer_earn", style="primary")
-        ],
-        [InlineKeyboardButton("🎧 Support", callback_data="support", style="primary")]
-    ]
+    markup = InlineKeyboardMarkup()
+    markup.row(InlineKeyboardButton("🖥 Open Web App", web_app=WebAppInfo(url=WEBAPP_URL), style="primary"))
+    markup.row(
+        InlineKeyboardButton("📖 How to Use", callback_data="how_to_use", style="primary"),
+        InlineKeyboardButton("🎁 Refer & Earn", callback_data="refer_earn", style="primary")
+    )
+    markup.row(InlineKeyboardButton("🎧 Support", callback_data="support", style="primary"))
     if user_id == ADMIN_ID:
-        buttons.append([InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin_panel", style="primary")])
-    return InlineKeyboardMarkup(buttons)
+        markup.row(InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin_panel", style="primary"))
+    return markup
 
 def get_admin_panel_components():
     total_users = 0
@@ -167,15 +163,14 @@ def get_admin_panel_components():
         "👇 <i>sᴇʟᴇᴄᴛ ᴀɴ ᴏᴘᴛɪᴏɴ ᴛᴏ ᴍᴀɴᴀɢᴇ:</i>"
         "</blockquote>"
     )
-    keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast", style="success"),
-            InlineKeyboardButton("💰 Manage Credits", callback_data="admin_credits", style="primary")
-        ],
-        [InlineKeyboardButton("🚫 Ban / Unban", callback_data="admin_ban_menu", style="danger")],
-        [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="main_menu", style="primary")]
-    ])
-    return text, keyboard
+    markup = InlineKeyboardMarkup()
+    markup.row(
+        InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast", style="success"),
+        InlineKeyboardButton("💰 Manage Credits", callback_data="admin_credits", style="primary")
+    )
+    markup.row(InlineKeyboardButton("🚫 Ban / Unban", callback_data="admin_ban_menu", style="danger"))
+    markup.row(InlineKeyboardButton("🔙 Back to Main Menu", callback_data="main_menu", style="primary"))
+    return text, markup
 
 def get_welcome_text(user, credits_val, referrals_val):
     full_name = esc(user.first_name + (" " + user.last_name if user.last_name else ""))
@@ -197,14 +192,14 @@ def get_welcome_text(user, credits_val, referrals_val):
     )
 
 # --- START COMMAND ---
-@bot.on_message(filters.command("start") & filters.private)
-async def start_handler(client: Client, message: Message):
+@bot.message_handler(commands=['start'])
+def start_handler(message):
     user = message.from_user
     if not user:
         return
 
     if is_user_banned(user.id):
-        await message.reply_text("<blockquote><b>⛔ You have been banned from using this bot.</b></blockquote>", parse_mode=enums.ParseMode.HTML)
+        bot.reply_to(message, "<blockquote><b>⛔ You have been banned from using this bot.</b></blockquote>")
         return
 
     user_ref = get_user_ref(user.id)
@@ -213,8 +208,9 @@ async def start_handler(client: Client, message: Message):
     # New user onboarding
     if user_data is None and user_ref:
         referrer_id = None
-        if len(message.command) > 1 and message.command[1].isdigit():
-            possible_ref = int(message.command[1])
+        cmd_parts = message.text.split() if message.text else []
+        if len(cmd_parts) > 1 and cmd_parts[1].isdigit():
+            possible_ref = int(cmd_parts[1])
             if possible_ref != user.id:
                 referrer_id = possible_ref
 
@@ -241,7 +237,7 @@ async def start_handler(client: Client, message: Message):
                     "referrals": ref_data.get("referrals", 0) + 1
                 })
                 try:
-                    await client.send_message(
+                    bot.send_message(
                         chat_id=referrer_id,
                         text=(
                             "<blockquote>"
@@ -250,8 +246,7 @@ async def start_handler(client: Client, message: Message):
                             "ᴀ ɴᴇᴡ ᴜsᴇʀ ᴊᴏɪɴᴇᴅ ᴜsɪɴɢ ʏᴏᴜʀ ʟɪɴᴋ. ʏᴏᴜ ᴇᴀʀɴᴇᴅ <b>+5 ᴄʀᴇᴅɪᴛs</b>!\n"
                             "━━━━━━━━━━━━━━━━━━"
                             "</blockquote>"
-                        ),
-                        parse_mode=enums.ParseMode.HTML
+                        )
                     )
                 except Exception:
                     pass
@@ -273,7 +268,7 @@ async def start_handler(client: Client, message: Message):
                 "</blockquote>"
             )
             try:
-                await client.send_message(chat_id=ADMIN_ID, text=alert_text, parse_mode=enums.ParseMode.HTML)
+                bot.send_message(chat_id=ADMIN_ID, text=alert_text)
             except Exception as e:
                 print(f"⚠️ Failed to notify admin: {e}", flush=True)
 
@@ -282,11 +277,11 @@ async def start_handler(client: Client, message: Message):
 
     welcome_text = get_welcome_text(user, credits_val, referrals_val)
     keyboard = build_main_keyboard(user.id)
-    await message.reply_text(welcome_text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
+    bot.reply_to(message, welcome_text, reply_markup=keyboard)
 
 # --- TEXT / MEDIA INPUT HANDLER (STATE DISPATCHER) ---
-@bot.on_message(filters.private & ~filters.command("start"))
-async def message_dispatcher(client: Client, message: Message):
+@bot.message_handler(func=lambda message: message.chat.type == 'private')
+def message_dispatcher(message):
     user_id = message.from_user.id
 
     # 1. USER ONE-TIME REQUEST TO ADMIN
@@ -303,12 +298,13 @@ async def message_dispatcher(client: Client, message: Message):
                 "</blockquote>"
             )
             try:
-                await client.send_message(chat_id=ADMIN_ID, text=alert_text, parse_mode=enums.ParseMode.HTML)
-                await client.copy_message(chat_id=ADMIN_ID, from_chat_id=user_id, message_id=message.id)
+                bot.send_message(chat_id=ADMIN_ID, text=alert_text)
+                bot.copy_message(chat_id=ADMIN_ID, from_chat_id=user_id, message_id=message.message_id)
             except Exception as e:
                 print(f"⚠️ Failed to forward user request to admin: {e}", flush=True)
 
-        await message.reply_text(
+        bot.reply_to(
+            message,
             (
                 "<blockquote>"
                 "<b>✅ REQUEST SENT ✅</b>\n"
@@ -317,14 +313,12 @@ async def message_dispatcher(client: Client, message: Message):
                 "👉 <i>ᴘʟᴇᴀsᴇ sᴇɴᴅ /start ᴛᴏ ɢᴏ ʙᴀᴄᴋ ᴛᴏ ᴛʜᴇ ᴍᴀɪɴ ᴍᴇɴᴜ.</i>\n"
                 "━━━━━━━━━━━━━━━━━━"
                 "</blockquote>"
-            ),
-            parse_mode=enums.ParseMode.HTML
+            )
         )
         return
 
-    back_to_admin_kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔙 Back to Admin Panel", callback_data="admin_panel", style="primary")]
-    ])
+    back_to_admin_kb = InlineKeyboardMarkup()
+    back_to_admin_kb.row(InlineKeyboardButton("🔙 Back to Admin Panel", callback_data="admin_panel", style="primary"))
 
     # 2. ADMIN STATE PROCESSORS
     if user_id == ADMIN_ID and user_id in admin_states:
@@ -332,9 +326,9 @@ async def message_dispatcher(client: Client, message: Message):
 
         # ADMIN BROADCAST
         if state == "broadcast":
-            status_msg = await message.reply_text(
-                "<blockquote>⏳ <i>Broadcasting message to all users...</i></blockquote>",
-                parse_mode=enums.ParseMode.HTML
+            status_msg = bot.reply_to(
+                message,
+                "<blockquote>⏳ <i>Broadcasting message to all users...</i></blockquote>"
             )
             users_ref = db.collection("users").stream() if db else []
             sent_count = 0
@@ -345,13 +339,13 @@ async def message_dispatcher(client: Client, message: Message):
                 if not uid.isdigit():
                     continue
                 try:
-                    await client.copy_message(chat_id=int(uid), from_chat_id=message.chat.id, message_id=message.id)
+                    bot.copy_message(chat_id=int(uid), from_chat_id=message.chat.id, message_id=message.message_id)
                     sent_count += 1
-                    await asyncio.sleep(0.05)
+                    time.sleep(0.05)
                 except Exception:
                     failed_count += 1
 
-            await status_msg.edit_text(
+            bot.edit_message_text(
                 (
                     "<blockquote>"
                     "<b>📢 BROADCAST COMPLETED 📢</b>\n"
@@ -361,8 +355,9 @@ async def message_dispatcher(client: Client, message: Message):
                     "━━━━━━━━━━━━━━━━━━"
                     "</blockquote>"
                 ),
-                reply_markup=back_to_admin_kb,
-                parse_mode=enums.ParseMode.HTML
+                chat_id=status_msg.chat.id,
+                message_id=status_msg.message_id,
+                reply_markup=back_to_admin_kb
             )
             return
 
@@ -370,30 +365,30 @@ async def message_dispatcher(client: Client, message: Message):
         elif state == "ban":
             text_val = message.text.strip() if message.text else ""
             if not text_val.isdigit():
-                await message.reply_text("<blockquote>❌ <b>Invalid ID!</b> Please send a numeric User ID.</blockquote>", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
+                bot.reply_to(message, "<blockquote>❌ <b>Invalid ID!</b> Please send a numeric User ID.</blockquote>", reply_markup=back_to_admin_kb)
                 return
             target_id = int(text_val)
             target_ref = get_user_ref(target_id)
             if target_ref and target_ref.get().exists:
                 target_ref.update({"is_banned": True})
-                await message.reply_text(f"<blockquote>✅ User <code>{target_id}</code> has been <b>banned</b>.</blockquote>", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
+                bot.reply_to(message, f"<blockquote>✅ User <code>{target_id}</code> has been <b>banned</b>.</blockquote>", reply_markup=back_to_admin_kb)
             else:
-                await message.reply_text("<blockquote>❌ User not found in database.</blockquote>", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
+                bot.reply_to(message, "<blockquote>❌ User not found in database.</blockquote>", reply_markup=back_to_admin_kb)
             return
 
         # ADMIN UNBAN USER
         elif state == "unban":
             text_val = message.text.strip() if message.text else ""
             if not text_val.isdigit():
-                await message.reply_text("<blockquote>❌ <b>Invalid ID!</b> Please send a numeric User ID.</blockquote>", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
+                bot.reply_to(message, "<blockquote>❌ <b>Invalid ID!</b> Please send a numeric User ID.</blockquote>", reply_markup=back_to_admin_kb)
                 return
             target_id = int(text_val)
             target_ref = get_user_ref(target_id)
             if target_ref and target_ref.get().exists:
                 target_ref.update({"is_banned": False})
-                await message.reply_text(f"<blockquote>✅ User <code>{target_id}</code> has been <b>unbanned</b>.</blockquote>", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
+                bot.reply_to(message, f"<blockquote>✅ User <code>{target_id}</code> has been <b>unbanned</b>.</blockquote>", reply_markup=back_to_admin_kb)
             else:
-                await message.reply_text("<blockquote>❌ User not found in database.</blockquote>", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
+                bot.reply_to(message, "<blockquote>❌ User not found in database.</blockquote>", reply_markup=back_to_admin_kb)
             return
 
         # ADMIN ADD / EDIT CREDITS
@@ -408,7 +403,7 @@ async def message_dispatcher(client: Client, message: Message):
                 if target_doc and target_doc.exists:
                     old_credits = target_doc.to_dict().get("credits", 10)
                     target_ref.update({"credits": amount})
-                    await message.reply_text(f"<blockquote>✅ Credits for user <code>{target_id}</code> updated to <b>{amount}</b>.</blockquote>", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
+                    bot.reply_to(message, f"<blockquote>✅ Credits for user <code>{target_id}</code> updated to <b>{amount}</b>.</blockquote>", reply_markup=back_to_admin_kb)
 
                     # Calculate diff and notify target user
                     diff = amount - old_credits
@@ -429,25 +424,24 @@ async def message_dispatcher(client: Client, message: Message):
                         "<i>ɴᴇᴇᴅ ʜᴇʟᴘ ᴏʀ ᴡᴀɴᴛ ᴛᴏ ʀᴇǫᴜᴇsᴛ ᴄʀᴇᴅɪᴛs? ᴄʟɪᴄᴋ ʙᴇʟᴏᴡ.</i>"
                         "</blockquote>"
                     )
-                    req_keyboard = InlineKeyboardMarkup([
-                        [InlineKeyboardButton("💬 Send Request", callback_data="user_request", style="success")]
-                    ])
+                    req_keyboard = InlineKeyboardMarkup()
+                    req_keyboard.row(InlineKeyboardButton("💬 Send Request", callback_data="user_request", style="success"))
                     try:
-                        await client.send_message(chat_id=target_id, text=user_alert, reply_markup=req_keyboard, parse_mode=enums.ParseMode.HTML)
+                        bot.send_message(chat_id=target_id, text=user_alert, reply_markup=req_keyboard)
                     except Exception as e:
                         print(f"⚠️ Could not notify user {target_id}: {e}", flush=True)
                 else:
-                    await message.reply_text("<blockquote>❌ User not found in database.</blockquote>", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
+                    bot.reply_to(message, "<blockquote>❌ User not found in database.</blockquote>", reply_markup=back_to_admin_kb)
             else:
-                await message.reply_text(
+                bot.reply_to(
+                    message,
                     (
                         "<blockquote>"
                         "❌ <b>Invalid format!</b> Please provide both User ID and Amount separated by a space.\n"
                         "<i>Example:</i> <code>123456789 50</code>"
                         "</blockquote>"
                     ),
-                    reply_markup=back_to_admin_kb,
-                    parse_mode=enums.ParseMode.HTML
+                    reply_markup=back_to_admin_kb
                 )
             return
 
@@ -455,7 +449,7 @@ async def message_dispatcher(client: Client, message: Message):
         elif state == "reset":
             text_val = message.text.strip() if message.text else ""
             if not text_val.isdigit():
-                await message.reply_text("<blockquote>❌ <b>Invalid ID!</b> Please send a numeric User ID.</blockquote>", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
+                bot.reply_to(message, "<blockquote>❌ <b>Invalid ID!</b> Please send a numeric User ID.</blockquote>", reply_markup=back_to_admin_kb)
                 return
             target_id = int(text_val)
             target_ref = get_user_ref(target_id)
@@ -465,7 +459,7 @@ async def message_dispatcher(client: Client, message: Message):
                 old_credits = target_doc.to_dict().get("credits", 10)
                 new_credits = 10
                 target_ref.update({"credits": new_credits})
-                await message.reply_text(f"<blockquote>🔄 Credits for user <code>{target_id}</code> have been reset to <b>10</b>.</blockquote>", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
+                bot.reply_to(message, f"<blockquote>🔄 Credits for user <code>{target_id}</code> have been reset to <b>10</b>.</blockquote>", reply_markup=back_to_admin_kb)
 
                 # Calculate diff and notify target user
                 diff = new_credits - old_credits
@@ -486,29 +480,30 @@ async def message_dispatcher(client: Client, message: Message):
                     "<i>ɴᴇᴇᴅ ʜᴇʟᴘ ᴏʀ ᴡᴀɴᴛ ᴛᴏ ʀᴇǫᴜᴇsᴛ ᴄʀᴇᴅɪᴛs? ᴄʟɪᴄᴋ ʙᴇʟᴏᴡ.</i>"
                     "</blockquote>"
                 )
-                req_keyboard = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("💬 Send Request", callback_data="user_request", style="success")]
-                ])
+                req_keyboard = InlineKeyboardMarkup()
+                req_keyboard.row(InlineKeyboardButton("💬 Send Request", callback_data="user_request", style="success"))
                 try:
-                    await client.send_message(chat_id=target_id, text=user_alert, reply_markup=req_keyboard, parse_mode=enums.ParseMode.HTML)
+                    bot.send_message(chat_id=target_id, text=user_alert, reply_markup=req_keyboard)
                 except Exception as e:
                     print(f"⚠️ Could not notify user {target_id}: {e}", flush=True)
             else:
-                await message.reply_text("<blockquote>❌ User not found in database.</blockquote>", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
+                bot.reply_to(message, "<blockquote>❌ User not found in database.</blockquote>", reply_markup=back_to_admin_kb)
             return
 
     if is_user_banned(user_id):
-        await message.reply_text("<blockquote><b>⛔ You have been banned from using this bot.</b></blockquote>", parse_mode=enums.ParseMode.HTML)
+        bot.reply_to(message, "<blockquote><b>⛔ You have been banned from using this bot.</b></blockquote>")
         return
 
 # --- CALLBACK QUERY NAVIGATION ---
-@bot.on_callback_query()
-async def callback_handler(client: Client, query: CallbackQuery):
-    user = query.from_user
-    data = query.data
+@bot.callback_query_handler(func=lambda call: True)
+def callback_handler(call):
+    user = call.from_user
+    data = call.data
+    chat_id = call.message.chat.id
+    message_id = call.message.message_id
 
     if is_user_banned(user.id):
-        await query.answer("⛔ You are banned from using this bot.", show_alert=True)
+        bot.answer_callback_query(call.id, "⛔ You are banned from using this bot.", show_alert=True)
         return
 
     # USER REQUEST CALLBACK
@@ -523,11 +518,10 @@ async def callback_handler(client: Client, query: CallbackQuery):
             "━━━━━━━━━━━━━━━━━━"
             "</blockquote>"
         )
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔙 Back", callback_data="main_menu", style="primary")]
-        ])
-        await query.message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
-        await query.answer()
+        keyboard = InlineKeyboardMarkup()
+        keyboard.row(InlineKeyboardButton("🔙 Back", callback_data="main_menu", style="primary"))
+        bot.edit_message_text(text, chat_id=chat_id, message_id=message_id, reply_markup=keyboard)
+        bot.answer_callback_query(call.id)
 
     # MAIN MENU
     elif data == "main_menu":
@@ -536,8 +530,8 @@ async def callback_handler(client: Client, query: CallbackQuery):
         referrals_val = user_data.get("referrals", 0) if user_data else 0
         text = get_welcome_text(user, credits_val, referrals_val)
         keyboard = build_main_keyboard(user.id)
-        await query.message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
-        await query.answer()
+        bot.edit_message_text(text, chat_id=chat_id, message_id=message_id, reply_markup=keyboard)
+        bot.answer_callback_query(call.id)
 
     # HOW TO USE MENU
     elif data == "how_to_use":
@@ -557,18 +551,17 @@ async def callback_handler(client: Client, query: CallbackQuery):
             "👇 <i>ɴᴀᴠɪɢᴀᴛᴇ ʙᴀᴄᴋ ᴏʀ ᴄᴏɴᴛᴀᴄᴛ sᴜᴘᴘᴏʀᴛ.</i>"
             "</blockquote>"
         )
-        keyboard = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("🔙 Back", callback_data="main_menu", style="primary"),
-                InlineKeyboardButton("🎧 Support", callback_data="support", style="primary")
-            ]
-        ])
-        await query.message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
-        await query.answer()
+        keyboard = InlineKeyboardMarkup()
+        keyboard.row(
+            InlineKeyboardButton("🔙 Back", callback_data="main_menu", style="primary"),
+            InlineKeyboardButton("🎧 Support", callback_data="support", style="primary")
+        )
+        bot.edit_message_text(text, chat_id=chat_id, message_id=message_id, reply_markup=keyboard)
+        bot.answer_callback_query(call.id)
 
     # REFER & EARN MENU
     elif data == "refer_earn":
-        bot_info = await client.get_me()
+        bot_info = bot.get_me()
         user_data = get_user_data(user.id)
         referral_count = user_data.get("referrals", 0) if user_data else 0
 
@@ -594,14 +587,13 @@ async def callback_handler(client: Client, query: CallbackQuery):
             "👇 <i>sʜᴀʀᴇ ʏᴏᴜʀ ʟɪɴᴋ ᴡɪᴛʜ ꜰʀɪᴇɴᴅs ᴏʀ ɢᴏ ʙᴀᴄᴋ.</i>"
             "</blockquote>"
         )
-        keyboard = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("🔙 Back", callback_data="main_menu", style="primary"),
-                InlineKeyboardButton("↗️ Share with Friends", url=share_url, style="primary")
-            ]
-        ])
-        await query.message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
-        await query.answer()
+        keyboard = InlineKeyboardMarkup()
+        keyboard.row(
+            InlineKeyboardButton("🔙 Back", callback_data="main_menu", style="primary"),
+            InlineKeyboardButton("↗️ Share with Friends", url=share_url, style="primary")
+        )
+        bot.edit_message_text(text, chat_id=chat_id, message_id=message_id, reply_markup=keyboard)
+        bot.answer_callback_query(call.id)
 
     # SUPPORT MENU
     elif data == "support":
@@ -616,38 +608,37 @@ async def callback_handler(client: Client, query: CallbackQuery):
             "<i>ᴄᴏɴᴛɪɴᴜᴇ ᴡɪᴛʜ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ 👇</i>"
             "</blockquote>"
         )
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔙 Back", callback_data="main_menu", style="primary")]
-        ])
-        await query.message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
-        await query.answer()
+        keyboard = InlineKeyboardMarkup()
+        keyboard.row(InlineKeyboardButton("🔙 Back", callback_data="main_menu", style="primary"))
+        bot.edit_message_text(text, chat_id=chat_id, message_id=message_id, reply_markup=keyboard)
+        bot.answer_callback_query(call.id)
 
     # MAIN ADMIN PANEL
     elif data == "admin_panel":
         if user.id != ADMIN_ID:
-            await query.answer("⛔ Access Denied. Admin only.", show_alert=True)
+            bot.answer_callback_query(call.id, "⛔ Access Denied. Admin only.", show_alert=True)
             return
 
         admin_states.pop(ADMIN_ID, None)
         text, keyboard = get_admin_panel_components()
-        await query.message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
-        await query.answer()
+        bot.edit_message_text(text, chat_id=chat_id, message_id=message_id, reply_markup=keyboard)
+        bot.answer_callback_query(call.id)
 
     # CANCEL ADMIN ACTION (SMART CANCEL)
     elif data == "admin_cancel":
         if user.id != ADMIN_ID:
-            await query.answer("⛔ Access Denied.", show_alert=True)
+            bot.answer_callback_query(call.id, "⛔ Access Denied.", show_alert=True)
             return
 
         admin_states.pop(ADMIN_ID, None)
         text, keyboard = get_admin_panel_components()
-        await query.message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
-        await query.answer("Action cancelled.")
+        bot.edit_message_text(text, chat_id=chat_id, message_id=message_id, reply_markup=keyboard)
+        bot.answer_callback_query(call.id, "Action cancelled.")
 
     # ADMIN: BROADCAST INITIATE
     elif data == "admin_broadcast":
         if user.id != ADMIN_ID:
-            await query.answer("⛔ Access Denied.", show_alert=True)
+            bot.answer_callback_query(call.id, "⛔ Access Denied.", show_alert=True)
             return
 
         admin_states[ADMIN_ID] = "broadcast"
@@ -660,16 +651,15 @@ async def callback_handler(client: Client, query: CallbackQuery):
             "👇 <i>ᴛᴀᴘ ᴄᴀɴᴄᴇʟ ʙᴇʟᴏᴡ ᴛᴏ ᴀʙᴏʀᴛ.</i>"
             "</blockquote>"
         )
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel", style="danger")]
-        ])
-        await query.message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
-        await query.answer()
+        keyboard = InlineKeyboardMarkup()
+        keyboard.row(InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel", style="danger"))
+        bot.edit_message_text(text, chat_id=chat_id, message_id=message_id, reply_markup=keyboard)
+        bot.answer_callback_query(call.id)
 
     # ADMIN: MANAGE CREDITS MENU
     elif data == "admin_credits":
         if user.id != ADMIN_ID:
-            await query.answer("⛔ Access Denied.", show_alert=True)
+            bot.answer_callback_query(call.id, "⛔ Access Denied.", show_alert=True)
             return
 
         text = (
@@ -680,20 +670,19 @@ async def callback_handler(client: Client, query: CallbackQuery):
             "━━━━━━━━━━━━━━━━━━"
             "</blockquote>"
         )
-        keyboard = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("➕ Add / Edit Credits", callback_data="admin_act_credit", style="success"),
-                InlineKeyboardButton("🔄 Reset Credits", callback_data="admin_act_reset", style="danger")
-            ],
-            [InlineKeyboardButton("🔙 Back to Admin Panel", callback_data="admin_panel", style="primary")]
-        ])
-        await query.message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
-        await query.answer()
+        keyboard = InlineKeyboardMarkup()
+        keyboard.row(
+            InlineKeyboardButton("➕ Add / Edit Credits", callback_data="admin_act_credit", style="success"),
+            InlineKeyboardButton("🔄 Reset Credits", callback_data="admin_act_reset", style="danger")
+        )
+        keyboard.row(InlineKeyboardButton("🔙 Back to Admin Panel", callback_data="admin_panel", style="primary"))
+        bot.edit_message_text(text, chat_id=chat_id, message_id=message_id, reply_markup=keyboard)
+        bot.answer_callback_query(call.id)
 
     # ADMIN ACTION: ADD / EDIT CREDITS PROMPT
     elif data == "admin_act_credit":
         if user.id != ADMIN_ID:
-            await query.answer("⛔ Access Denied.", show_alert=True)
+            bot.answer_callback_query(call.id, "⛔ Access Denied.", show_alert=True)
             return
 
         admin_states[ADMIN_ID] = "credit"
@@ -707,16 +696,15 @@ async def callback_handler(client: Client, query: CallbackQuery):
             "👇 <i>ᴛᴀᴘ ᴄᴀɴᴄᴇʟ ʙᴇʟᴏᴡ ᴛᴏ ᴀʙᴏʀᴛ.</i>"
             "</blockquote>"
         )
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel", style="danger")]
-        ])
-        await query.message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
-        await query.answer()
+        keyboard = InlineKeyboardMarkup()
+        keyboard.row(InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel", style="danger"))
+        bot.edit_message_text(text, chat_id=chat_id, message_id=message_id, reply_markup=keyboard)
+        bot.answer_callback_query(call.id)
 
     # ADMIN ACTION: RESET CREDITS PROMPT
     elif data == "admin_act_reset":
         if user.id != ADMIN_ID:
-            await query.answer("⛔ Access Denied.", show_alert=True)
+            bot.answer_callback_query(call.id, "⛔ Access Denied.", show_alert=True)
             return
 
         admin_states[ADMIN_ID] = "reset"
@@ -730,16 +718,15 @@ async def callback_handler(client: Client, query: CallbackQuery):
             "👇 <i>ᴛᴀᴘ ᴄᴀɴᴄᴇʟ ʙᴇʟᴏᴡ ᴛᴏ ᴀʙᴏʀᴛ.</i>"
             "</blockquote>"
         )
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel", style="danger")]
-        ])
-        await query.message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
-        await query.answer()
+        keyboard = InlineKeyboardMarkup()
+        keyboard.row(InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel", style="danger"))
+        bot.edit_message_text(text, chat_id=chat_id, message_id=message_id, reply_markup=keyboard)
+        bot.answer_callback_query(call.id)
 
     # ADMIN: BAN / UNBAN MENU
     elif data == "admin_ban_menu":
         if user.id != ADMIN_ID:
-            await query.answer("⛔ Access Denied.", show_alert=True)
+            bot.answer_callback_query(call.id, "⛔ Access Denied.", show_alert=True)
             return
 
         text = (
@@ -750,20 +737,19 @@ async def callback_handler(client: Client, query: CallbackQuery):
             "━━━━━━━━━━━━━━━━━━"
             "</blockquote>"
         )
-        keyboard = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("🚫 Ban User", callback_data="admin_act_ban", style="danger"),
-                InlineKeyboardButton("✅ Unban User", callback_data="admin_act_unban", style="success")
-            ],
-            [InlineKeyboardButton("🔙 Back to Admin Panel", callback_data="admin_panel", style="primary")]
-        ])
-        await query.message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
-        await query.answer()
+        keyboard = InlineKeyboardMarkup()
+        keyboard.row(
+            InlineKeyboardButton("🚫 Ban User", callback_data="admin_act_ban", style="danger"),
+            InlineKeyboardButton("✅ Unban User", callback_data="admin_act_unban", style="success")
+        )
+        keyboard.row(InlineKeyboardButton("🔙 Back to Admin Panel", callback_data="admin_panel", style="primary"))
+        bot.edit_message_text(text, chat_id=chat_id, message_id=message_id, reply_markup=keyboard)
+        bot.answer_callback_query(call.id)
 
     # ADMIN ACTION: BAN PROMPT
     elif data == "admin_act_ban":
         if user.id != ADMIN_ID:
-            await query.answer("⛔ Access Denied.", show_alert=True)
+            bot.answer_callback_query(call.id, "⛔ Access Denied.", show_alert=True)
             return
 
         admin_states[ADMIN_ID] = "ban"
@@ -777,16 +763,15 @@ async def callback_handler(client: Client, query: CallbackQuery):
             "👇 <i>ᴛᴀᴘ ᴄᴀɴᴄᴇʟ ʙᴇʟᴏᴡ ᴛᴏ ᴀʙᴏʀᴛ.</i>"
             "</blockquote>"
         )
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel", style="danger")]
-        ])
-        await query.message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
-        await query.answer()
+        keyboard = InlineKeyboardMarkup()
+        keyboard.row(InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel", style="danger"))
+        bot.edit_message_text(text, chat_id=chat_id, message_id=message_id, reply_markup=keyboard)
+        bot.answer_callback_query(call.id)
 
     # ADMIN ACTION: UNBAN PROMPT
     elif data == "admin_act_unban":
         if user.id != ADMIN_ID:
-            await query.answer("⛔ Access Denied.", show_alert=True)
+            bot.answer_callback_query(call.id, "⛔ Access Denied.", show_alert=True)
             return
 
         admin_states[ADMIN_ID] = "unban"
@@ -800,14 +785,13 @@ async def callback_handler(client: Client, query: CallbackQuery):
             "👇 <i>ᴛᴀᴘ ᴄᴀɴᴄᴇʟ ʙᴇʟᴏᴡ ᴛᴏ ᴀʙᴏʀᴛ.</i>"
             "</blockquote>"
         )
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel", style="danger")]
-        ])
-        await query.message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
-        await query.answer()
+        keyboard = InlineKeyboardMarkup()
+        keyboard.row(InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel", style="danger"))
+        bot.edit_message_text(text, chat_id=chat_id, message_id=message_id, reply_markup=keyboard)
+        bot.answer_callback_query(call.id)
 
-print("🚀 Starting bot.run()...", flush=True)
-bot.run()
+print("🚀 Starting bot.infinity_polling()...", flush=True)
+bot.infinity_polling()
 """
 
 with open("bot.py", "w", encoding="utf-8") as f:
