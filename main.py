@@ -95,8 +95,9 @@ if BOT_TOKEN:
 
 bot = Client(":memory:", api_id=int(API_ID), api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# State tracker for admin button inputs
+# State trackers
 admin_states = {}
+user_states = {}
 
 # --- HELPER FUNCTIONS ---
 def esc(text):
@@ -258,14 +259,42 @@ async def start_handler(client: Client, message: Message):
 @bot.on_message(filters.private & ~filters.command("start"))
 async def message_dispatcher(client: Client, message: Message):
     user_id = message.from_user.id
+
+    # 1. USER ONE-TIME REQUEST TO ADMIN
+    if user_id in user_states and user_states[user_id] == "awaiting_request":
+        user_states.pop(user_id, None)
+        if ADMIN_ID != 0:
+            sender_name = esc(message.from_user.first_name if message.from_user else "User")
+            alert_text = (
+                "<b>📩 NEW USER REQUEST</b>\n"
+                "━━━━━━━━━━━━━━━━━━\n"
+                f"👤 <b>From:</b> {sender_name} (<code>{user_id}</code>)\n"
+                "━━━━━━━━━━━━━━━━━━"
+            )
+            try:
+                await client.send_message(chat_id=ADMIN_ID, text=alert_text, parse_mode=enums.ParseMode.HTML)
+                await client.copy_message(chat_id=ADMIN_ID, from_chat_id=user_id, message_id=message.id)
+            except Exception as e:
+                print(f"⚠️ Failed to forward user request to admin: {e}", flush=True)
+
+        await message.reply_text(
+            (
+                "✅ <b>Your request has been successfully sent to the Admin!</b>\n\n"
+                "👉 <i>Please send /start to go back to the Main Menu.</i>"
+            ),
+            parse_mode=enums.ParseMode.HTML
+        )
+        return
+
     back_to_admin_kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("🔙 Back to Admin Panel", callback_data="admin_panel")]
     ])
 
+    # 2. ADMIN STATE PROCESSORS
     if user_id == ADMIN_ID and user_id in admin_states:
         state = admin_states.pop(user_id, None)
 
-        # 1. BROADCAST
+        # ADMIN BROADCAST
         if state == "broadcast":
             status_msg = await message.reply_text(
                 "⏳ <i>Broadcasting message to all users...</i>",
@@ -298,7 +327,7 @@ async def message_dispatcher(client: Client, message: Message):
             )
             return
 
-        # 2. BAN USER
+        # ADMIN BAN USER
         elif state == "ban":
             text_val = message.text.strip() if message.text else ""
             if not text_val.isdigit():
@@ -313,7 +342,7 @@ async def message_dispatcher(client: Client, message: Message):
                 await message.reply_text("❌ User not found in database.", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
             return
 
-        # 3. UNBAN USER
+        # ADMIN UNBAN USER
         elif state == "unban":
             text_val = message.text.strip() if message.text else ""
             if not text_val.isdigit():
@@ -328,16 +357,44 @@ async def message_dispatcher(client: Client, message: Message):
                 await message.reply_text("❌ User not found in database.", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
             return
 
-        # 4. ADD / EDIT CREDITS
+        # ADMIN ADD / EDIT CREDITS
         elif state == "credit":
             parts = message.text.split() if message.text else []
             if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
                 target_id = int(parts[0])
                 amount = int(parts[1])
                 target_ref = get_user_ref(target_id)
-                if target_ref and target_ref.get().exists:
+                target_doc = target_ref.get() if target_ref else None
+
+                if target_doc and target_doc.exists:
+                    old_credits = target_doc.to_dict().get("credits", 10)
                     target_ref.update({"credits": amount})
                     await message.reply_text(f"✅ Credits for user <code>{target_id}</code> updated to <b>{amount}</b>.", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
+
+                    # Calculate diff and notify target user
+                    diff = amount - old_credits
+                    if diff > 0:
+                        change_text = f"🎉 <b>+{diff} Credits</b> have been added to your account!"
+                    elif diff < 0:
+                        change_text = f"⚠️ <b>{diff} Credits</b> have been deducted from your account."
+                    else:
+                        change_text = "ℹ️ Your credit balance has been updated."
+
+                    user_alert = (
+                        "<b>💰 CREDIT UPDATE ALERT</b>\n"
+                        "━━━━━━━━━━━━━━━━━━\n"
+                        f"{change_text}\n\n"
+                        f"💳 <b>New Balance:</b> {amount}\n"
+                        "━━━━━━━━━━━━━━━━━━\n"
+                        "<i>Need help or want to request credits? Click below.</i>"
+                    )
+                    req_keyboard = InlineKeyboardMarkup([
+                        [InlineKeyboardButton("💬 Send Request", callback_data="user_request")]
+                    ])
+                    try:
+                        await client.send_message(chat_id=target_id, text=user_alert, reply_markup=req_keyboard, parse_mode=enums.ParseMode.HTML)
+                    except Exception as e:
+                        print(f"⚠️ Could not notify user {target_id}: {e}", flush=True)
                 else:
                     await message.reply_text("❌ User not found in database.", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
             else:
@@ -351,7 +408,7 @@ async def message_dispatcher(client: Client, message: Message):
                 )
             return
 
-        # 5. RESET CREDITS
+        # ADMIN RESET CREDITS
         elif state == "reset":
             text_val = message.text.strip() if message.text else ""
             if not text_val.isdigit():
@@ -359,9 +416,38 @@ async def message_dispatcher(client: Client, message: Message):
                 return
             target_id = int(text_val)
             target_ref = get_user_ref(target_id)
-            if target_ref and target_ref.get().exists:
-                target_ref.update({"credits": 10})
+            target_doc = target_ref.get() if target_ref else None
+
+            if target_doc and target_doc.exists:
+                old_credits = target_doc.to_dict().get("credits", 10)
+                new_credits = 10
+                target_ref.update({"credits": new_credits})
                 await message.reply_text(f"🔄 Credits for user <code>{target_id}</code> have been reset to <b>10</b>.", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
+
+                # Calculate diff and notify target user
+                diff = new_credits - old_credits
+                if diff > 0:
+                    change_text = f"🎉 <b>+{diff} Credits</b> have been added to your account (Reset to default)!"
+                elif diff < 0:
+                    change_text = f"⚠️ <b>{diff} Credits</b> have been deducted (Reset to default)."
+                else:
+                    change_text = "🔄 Your credits have been reset to the default balance (10)."
+
+                user_alert = (
+                    "<b>💰 CREDIT UPDATE ALERT</b>\n"
+                    "━━━━━━━━━━━━━━━━━━\n"
+                    f"{change_text}\n\n"
+                    f"💳 <b>New Balance:</b> {new_credits}\n"
+                    "━━━━━━━━━━━━━━━━━━\n"
+                    "<i>Need help or want to request credits? Click below.</i>"
+                )
+                req_keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("💬 Send Request", callback_data="user_request")]
+                ])
+                try:
+                    await client.send_message(chat_id=target_id, text=user_alert, reply_markup=req_keyboard, parse_mode=enums.ParseMode.HTML)
+                except Exception as e:
+                    print(f"⚠️ Could not notify user {target_id}: {e}", flush=True)
             else:
                 await message.reply_text("❌ User not found in database.", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
             return
@@ -380,8 +466,20 @@ async def callback_handler(client: Client, query: CallbackQuery):
         await query.answer("⛔ You are banned from using this bot.", show_alert=True)
         return
 
+    # USER REQUEST CALLBACK
+    if data == "user_request":
+        user_states[user.id] = "awaiting_request"
+        text = (
+            "<b>💬 SEND A REQUEST</b>\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "Type your message below (e.g., 'Please add more credits') and send it.\n\n"
+            "<i>I will forward it directly to the Admin.</i>"
+        )
+        await query.message.edit_text(text, parse_mode=enums.ParseMode.HTML)
+        await query.answer()
+
     # MAIN MENU
-    if data == "main_menu":
+    elif data == "main_menu":
         user_data = get_user_data(user.id)
         credits_val = user_data.get("credits", 10) if user_data else 10
         referrals_val = user_data.get("referrals", 0) if user_data else 0
