@@ -36,6 +36,7 @@ import urllib.parse
 import asyncio
 from datetime import datetime
 import requests
+import inspect
 
 print("✅ Bot script is starting...", flush=True)
 
@@ -62,6 +63,20 @@ try:
 except Exception as e:
     print(f"❌ MODULE ERROR: {e}", flush=True)
     sys.exit(1)
+
+# Ensure InlineKeyboardButton accepts Telegram API 9.4 'style' across all Pyrogram versions
+try:
+    _sig = inspect.signature(InlineKeyboardButton.__init__)
+    if "style" not in _sig.parameters and not any(p.kind == inspect.Parameter.VAR_KEYWORD for p in _sig.parameters.values()):
+        _orig_ikb_init = InlineKeyboardButton.__init__
+        def _safe_ikb_init(self, *args, **kwargs):
+            style = kwargs.pop("style", None)
+            _orig_ikb_init(self, *args, **kwargs)
+            if style:
+                setattr(self, "style", style)
+        InlineKeyboardButton.__init__ = _safe_ikb_init
+except Exception:
+    pass
 
 # Initialize Firebase
 try:
@@ -124,15 +139,15 @@ def is_user_banned(user_id):
 
 def build_main_keyboard(user_id):
     buttons = [
-        [InlineKeyboardButton("🖥 Open Web App", web_app=WebAppInfo(url=WEBAPP_URL))],
+        [InlineKeyboardButton("🖥 Open Web App", web_app=WebAppInfo(url=WEBAPP_URL), style="primary")],
         [
-            InlineKeyboardButton("📖 How to Use", callback_data="how_to_use"),
-            InlineKeyboardButton("🎁 Refer & Earn", callback_data="refer_earn")
+            InlineKeyboardButton("📖 How to Use", callback_data="how_to_use", style="primary"),
+            InlineKeyboardButton("🎁 Refer & Earn", callback_data="refer_earn", style="primary")
         ],
-        [InlineKeyboardButton("🎧 Support", callback_data="support")]
+        [InlineKeyboardButton("🎧 Support", callback_data="support", style="primary")]
     ]
     if user_id == ADMIN_ID:
-        buttons.append([InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin_panel")])
+        buttons.append([InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin_panel", style="primary")])
     return InlineKeyboardMarkup(buttons)
 
 def get_admin_panel_components():
@@ -142,21 +157,22 @@ def get_admin_panel_components():
         total_users = sum(1 for _ in users_docs)
 
     text = (
-        "<b>⚙️ ADMIN CONTROL PANEL</b>\n"
+        "<b>⚙️ ADMIN CONTROL PANEL ⚙️</b>\n"
+        "<blockquote>"
+        "ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ ᴄᴏɴᴛʀᴏʟ ᴄᴇɴᴛᴇʀ, ʙᴏss!\n"
+        "ʜᴇʀᴇ ʏᴏᴜ ᴄᴀɴ ᴍᴀɴᴀɢᴇ ʏᴏᴜʀ ᴇᴅɪᴛᴍᴇᴅɪᴀ ʙᴏᴛ.\n\n"
+        f"📊 <b>ᴛᴏᴛᴀʟ ᴜsᴇʀs:</b> {total_users}\n"
         "━━━━━━━━━━━━━━━━━━\n"
-        "Welcome to the control center, Boss!\n"
-        "Here you can manage your EDITMEDIA Bot.\n\n"
-        f"📊 <b>Total Users:</b> {total_users}\n"
-        "━━━━━━━━━━━━━━━━━━\n"
-        "👇 <i>Select an option to manage:</i>"
+        "👇 <i>sᴇʟᴇᴄᴛ ᴀɴ ᴏᴘᴛɪᴏɴ ᴛᴏ ᴍᴀɴᴀɢᴇ:</i>"
+        "</blockquote>"
     )
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast"),
-            InlineKeyboardButton("💰 Manage Credits", callback_data="admin_credits")
+            InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast", style="success"),
+            InlineKeyboardButton("💰 Manage Credits", callback_data="admin_credits", style="primary")
         ],
-        [InlineKeyboardButton("🚫 Ban / Unban", callback_data="admin_ban_menu")],
-        [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="main_menu")]
+        [InlineKeyboardButton("🚫 Ban / Unban", callback_data="admin_ban_menu", style="danger")],
+        [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="main_menu", style="primary")]
     ])
     return text, keyboard
 
@@ -164,17 +180,18 @@ def get_welcome_text(user, credits_val, referrals_val):
     full_name = esc(user.first_name + (" " + user.last_name if user.last_name else ""))
     profile = f"@{user.username}" if user.username else f"<a href='tg://user?id={user.id}'>Link</a>"
     return (
-        "━━━━━━━━━━━━━━━━━━\n"
         "<b>✨ WELCOME TO EDITMEDIA BOT ✨</b>\n"
-        "<i>Your all-in-one Telegram Mini App for smart image processing. Open the Web App to easily generate image links, compress photos, and convert images to PDF in seconds!</i>\n"
+        "<blockquote>"
+        "<i>ʏᴏᴜʀ ᴀʟʟ-ɪɴ-ᴏɴᴇ ᴛᴇʟᴇɢʀᴀᴍ ᴍɪɴɪ ᴀᴘᴘ ꜰᴏʀ sᴍᴀʀᴛ ɪᴍᴀɢᴇ ᴘʀᴏᴄᴇssɪɴɢ. ᴏᴘᴇɴ ᴛʜᴇ ᴡᴇʙ ᴀᴘᴘ ᴛᴏ ᴇᴀsɪʟʏ ɢᴇɴᴇʀᴀᴛᴇ ɪᴍᴀɢᴇ ʟɪɴᴋs, ᴄᴏᴍᴘʀᴇss ᴘʜᴏᴛᴏs, ᴀɴᴅ ᴄᴏɴᴠᴇʀᴛ ɪᴍᴀɢᴇs ᴛᴏ ᴘᴅꜰ ɪɴ sᴇᴄᴏɴᴅs!</i>\n"
         "━━━━━━━━━━━━━━━━━━\n"
-        f"👤 <b>Name:</b> {full_name}\n"
-        f"🔗 <b>Profile:</b> {profile}\n"
-        f"🆔 <b>ID:</b> <code>{user.id}</code>\n\n"
-        f"💰 <b>Credits:</b> {credits_val}\n"
-        f"👥 <b>Referrals:</b> {referrals_val}\n"
+        f"👤 <b>ɴᴀᴍᴇ:</b> {full_name}\n"
+        f"🔗 <b>ᴘʀᴏꜰɪʟᴇ:</b> {profile}\n"
+        f"🆔 <b>ɪᴅ:</b> <code>{user.id}</code>\n\n"
+        f"💰 <b>ᴄʀᴇᴅɪᴛs:</b> {credits_val}\n"
+        f"👥 <b>ʀᴇꜰᴇʀʀᴀʟs:</b> {referrals_val}\n"
         "━━━━━━━━━━━━━━━━━━\n"
-        "👇 <i>Tap the buttons below to explore and get started!</i>"
+        "👇 <i>ᴛᴀᴘ ᴛʜᴇ ʙᴜᴛᴛᴏɴs ʙᴇʟᴏᴡ ᴛᴏ ᴇxᴘʟᴏʀᴇ ᴀɴᴅ ɢᴇᴛ sᴛᴀʀᴛᴇᴅ!</i>"
+        "</blockquote>"
     )
 
 # --- START COMMAND ---
@@ -224,7 +241,12 @@ async def start_handler(client: Client, message: Message):
                 try:
                     await client.send_message(
                         chat_id=referrer_id,
-                        text="<b>🎁 Referral Bonus!</b>\nA new user joined using your link. You earned <b>+5 Credits</b>!",
+                        text=(
+                            "<b>🎁 REFERRAL BONUS 🎁</b>\n"
+                            "<blockquote>"
+                            "ᴀ ɴᴇᴡ ᴜsᴇʀ ᴊᴏɪɴᴇᴅ ᴜsɪɴɢ ʏᴏᴜʀ ʟɪɴᴋ. ʏᴏᴜ ᴇᴀʀɴᴇᴅ <b>+5 ᴄʀᴇᴅɪᴛs</b>!"
+                            "</blockquote>"
+                        ),
                         parse_mode=enums.ParseMode.HTML
                     )
                 except Exception:
@@ -235,13 +257,15 @@ async def start_handler(client: Client, message: Message):
             profile_link = f"@{user.username}" if user.username else f"<a href='tg://user?id={user.id}'>Link</a>"
             alert_text = (
                 "<b>🔔 NEW USER ALERT 🔔</b>\n"
+                "<blockquote>"
+                "ᴀ ɴᴇᴡ ᴜsᴇʀ ʜᴀs ᴊᴜsᴛ sᴛᴀʀᴛᴇᴅ ᴛʜᴇ ʙᴏᴛ!\n"
                 "━━━━━━━━━━━━━━━━━━\n"
-                "A new user has just started the bot!\n"
-                f"👤 <b>Name:</b> {esc(user_data['name'])}\n"
-                f"🔗 <b>Profile:</b> {profile_link}\n"
-                f"🆔 <b>ID:</b> <code>{user.id}</code>\n"
-                f"📅 <b>Date:</b> {now_str}\n"
+                f"👤 <b>ɴᴀᴍᴇ:</b> {esc(user_data['name'])}\n"
+                f"🔗 <b>ᴘʀᴏꜰɪʟᴇ:</b> {profile_link}\n"
+                f"🆔 <b>ɪᴅ:</b> <code>{user.id}</code>\n"
+                f"📅 <b>ᴅᴀᴛᴇ:</b> {now_str}\n"
                 "━━━━━━━━━━━━━━━━━━"
+                "</blockquote>"
             )
             try:
                 await client.send_message(chat_id=ADMIN_ID, text=alert_text, parse_mode=enums.ParseMode.HTML)
@@ -266,10 +290,11 @@ async def message_dispatcher(client: Client, message: Message):
         if ADMIN_ID != 0:
             sender_name = esc(message.from_user.first_name if message.from_user else "User")
             alert_text = (
-                "<b>📩 NEW USER REQUEST</b>\n"
-                "━━━━━━━━━━━━━━━━━━\n"
-                f"👤 <b>From:</b> {sender_name} (<code>{user_id}</code>)\n"
+                "<b>📩 NEW USER REQUEST 📩</b>\n"
+                "<blockquote>"
+                f"👤 <b>ꜰʀᴏᴍ:</b> {sender_name} (<code>{user_id}</code>)\n"
                 "━━━━━━━━━━━━━━━━━━"
+                "</blockquote>"
             )
             try:
                 await client.send_message(chat_id=ADMIN_ID, text=alert_text, parse_mode=enums.ParseMode.HTML)
@@ -279,15 +304,18 @@ async def message_dispatcher(client: Client, message: Message):
 
         await message.reply_text(
             (
-                "✅ <b>Your request has been successfully sent to the Admin!</b>\n\n"
-                "👉 <i>Please send /start to go back to the Main Menu.</i>"
+                "<b>✅ REQUEST SENT ✅</b>\n"
+                "<blockquote>"
+                "ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ ʜᴀs ʙᴇᴇɴ sᴜᴄᴄᴇssꜰᴜʟʟʏ sᴇɴᴛ ᴛᴏ ᴛʜᴇ ᴀᴅᴍɪɴ!\n\n"
+                "👉 <i>ᴘʟᴇᴀsᴇ sᴇɴᴅ /start ᴛᴏ ɢᴏ ʙᴀᴄᴋ ᴛᴏ ᴛʜᴇ ᴍᴀɪɴ ᴍᴇɴᴜ.</i>"
+                "</blockquote>"
             ),
             parse_mode=enums.ParseMode.HTML
         )
         return
 
     back_to_admin_kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔙 Back to Admin Panel", callback_data="admin_panel")]
+        [InlineKeyboardButton("🔙 Back to Admin Panel", callback_data="admin_panel", style="primary")]
     ])
 
     # 2. ADMIN STATE PROCESSORS
@@ -317,10 +345,11 @@ async def message_dispatcher(client: Client, message: Message):
 
             await status_msg.edit_text(
                 (
-                    "<b>📢 Broadcast Completed!</b>\n"
-                    "━━━━━━━━━━━━━━━━━━\n"
-                    f"✅ <b>Successfully Delivered:</b> {sent_count}\n"
-                    f"❌ <b>Failed / Blocked:</b> {failed_count}"
+                    "<b>📢 BROADCAST COMPLETED 📢</b>\n"
+                    "<blockquote>"
+                    f"✅ <b>sᴜᴄᴄᴇssꜰᴜʟʟʏ ᴅᴇʟɪᴠᴇʀᴇᴅ:</b> {sent_count}\n"
+                    f"❌ <b>ꜰᴀɪʟᴇᴅ / ʙʟᴏᴄᴋᴇᴅ:</b> {failed_count}"
+                    "</blockquote>"
                 ),
                 reply_markup=back_to_admin_kb,
                 parse_mode=enums.ParseMode.HTML
@@ -374,22 +403,23 @@ async def message_dispatcher(client: Client, message: Message):
                     # Calculate diff and notify target user
                     diff = amount - old_credits
                     if diff > 0:
-                        change_text = f"🎉 <b>+{diff} Credits</b> have been added to your account!"
+                        change_text = f"🎉 <b>+{diff} ᴄʀᴇᴅɪᴛs</b> ʜᴀᴠᴇ ʙᴇᴇɴ ᴀᴅᴅᴇᴅ ᴛᴏ ʏᴏᴜʀ ᴀᴄᴄᴏᴜɴᴛ!"
                     elif diff < 0:
-                        change_text = f"⚠️ <b>{diff} Credits</b> have been deducted from your account."
+                        change_text = f"⚠️ <b>{diff} ᴄʀᴇᴅɪᴛs</b> ʜᴀᴠᴇ ʙᴇᴇɴ ᴅᴇᴅᴜᴄᴛᴇᴅ ꜰʀᴏᴍ ʏᴏᴜʀ ᴀᴄᴄᴏᴜɴᴛ."
                     else:
-                        change_text = "ℹ️ Your credit balance has been updated."
+                        change_text = "ℹ️ ʏᴏᴜʀ ᴄʀᴇᴅɪᴛ ʙᴀʟᴀɴᴄᴇ ʜᴀs ʙᴇᴇɴ ᴜᴘᴅᴀᴛᴇᴅ."
 
                     user_alert = (
-                        "<b>💰 CREDIT UPDATE ALERT</b>\n"
-                        "━━━━━━━━━━━━━━━━━━\n"
+                        "<b>💰 CREDIT UPDATE ALERT 💰</b>\n"
+                        "<blockquote>"
                         f"{change_text}\n\n"
-                        f"💳 <b>New Balance:</b> {amount}\n"
+                        f"💳 <b>ɴᴇᴡ ʙᴀʟᴀɴᴄᴇ:</b> {amount}\n"
                         "━━━━━━━━━━━━━━━━━━\n"
-                        "<i>Need help or want to request credits? Click below.</i>"
+                        "<i>ɴᴇᴇᴅ ʜᴇʟᴘ ᴏʀ ᴡᴀɴᴛ ᴛᴏ ʀᴇǫᴜᴇsᴛ ᴄʀᴇᴅɪᴛs? ᴄʟɪᴄᴋ ʙᴇʟᴏᴡ.</i>"
+                        "</blockquote>"
                     )
                     req_keyboard = InlineKeyboardMarkup([
-                        [InlineKeyboardButton("💬 Send Request", callback_data="user_request")]
+                        [InlineKeyboardButton("💬 Send Request", callback_data="user_request", style="success")]
                     ])
                     try:
                         await client.send_message(chat_id=target_id, text=user_alert, reply_markup=req_keyboard, parse_mode=enums.ParseMode.HTML)
@@ -427,22 +457,23 @@ async def message_dispatcher(client: Client, message: Message):
                 # Calculate diff and notify target user
                 diff = new_credits - old_credits
                 if diff > 0:
-                    change_text = f"🎉 <b>+{diff} Credits</b> have been added to your account (Reset to default)!"
+                    change_text = f"🎉 <b>+{diff} ᴄʀᴇᴅɪᴛs</b> ʜᴀᴠᴇ ʙᴇᴇɴ ᴀᴅᴅᴇᴅ ᴛᴏ ʏᴏᴜʀ ᴀᴄᴄᴏᴜɴᴛ (ʀᴇsᴇᴛ)!"
                 elif diff < 0:
-                    change_text = f"⚠️ <b>{diff} Credits</b> have been deducted (Reset to default)."
+                    change_text = f"⚠️ <b>{diff} ᴄʀᴇᴅɪᴛs</b> ʜᴀᴠᴇ ʙᴇᴇɴ ᴅᴇᴅᴜᴄᴛᴇᴅ (ʀᴇsᴇᴛ ᴛᴏ ᴅᴇꜰᴀᴜʟᴛ)."
                 else:
-                    change_text = "🔄 Your credits have been reset to the default balance (10)."
+                    change_text = "🔄 ʏᴏᴜʀ ᴄʀᴇᴅɪᴛs ʜᴀᴠᴇ ʙᴇᴇɴ ʀᴇsᴇᴛ ᴛᴏ ᴛʜᴇ ᴅᴇꜰᴀᴜʟᴛ ʙᴀʟᴀɴᴄᴇ (10)."
 
                 user_alert = (
-                    "<b>💰 CREDIT UPDATE ALERT</b>\n"
-                    "━━━━━━━━━━━━━━━━━━\n"
+                    "<b>💰 CREDIT UPDATE ALERT 💰</b>\n"
+                    "<blockquote>"
                     f"{change_text}\n\n"
-                    f"💳 <b>New Balance:</b> {new_credits}\n"
+                    f"💳 <b>ɴᴇᴡ ʙᴀʟᴀɴᴄᴇ:</b> {new_credits}\n"
                     "━━━━━━━━━━━━━━━━━━\n"
-                    "<i>Need help or want to request credits? Click below.</i>"
+                    "<i>ɴᴇᴇᴅ ʜᴇʟᴘ ᴏʀ ᴡᴀɴᴛ ᴛᴏ ʀᴇǫᴜᴇsᴛ ᴄʀᴇᴅɪᴛs? ᴄʟɪᴄᴋ ʙᴇʟᴏᴡ.</i>"
+                    "</blockquote>"
                 )
                 req_keyboard = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("💬 Send Request", callback_data="user_request")]
+                    [InlineKeyboardButton("💬 Send Request", callback_data="user_request", style="success")]
                 ])
                 try:
                     await client.send_message(chat_id=target_id, text=user_alert, reply_markup=req_keyboard, parse_mode=enums.ParseMode.HTML)
@@ -470,12 +501,16 @@ async def callback_handler(client: Client, query: CallbackQuery):
     if data == "user_request":
         user_states[user.id] = "awaiting_request"
         text = (
-            "<b>💬 SEND A REQUEST</b>\n"
-            "━━━━━━━━━━━━━━━━━━\n"
-            "Type your message below (e.g., 'Please add more credits') and send it.\n\n"
-            "<i>I will forward it directly to the Admin.</i>"
+            "<b>💬 SEND A REQUEST 💬</b>\n"
+            "<blockquote>"
+            "ᴛʏᴘᴇ ʏᴏᴜʀ ᴍᴇssᴀɢᴇ ʙᴇʟᴏᴡ (ᴇ.ɢ., 'ᴘʟᴇᴀsᴇ ᴀᴅᴅ ᴍᴏʀᴇ ᴄʀᴇᴅɪᴛs') ᴀɴᴅ sᴇɴᴅ ɪᴛ.\n\n"
+            "<i>ɪ ᴡɪʟʟ ꜰᴏʀᴡᴀʀᴅ ɪᴛ ᴅɪʀᴇᴄᴛʟʏ ᴛᴏ ᴛʜᴇ ᴀᴅᴍɪɴ.</i>"
+            "</blockquote>"
         )
-        await query.message.edit_text(text, parse_mode=enums.ParseMode.HTML)
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔙 Back", callback_data="main_menu", style="primary")]
+        ])
+        await query.message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
         await query.answer()
 
     # MAIN MENU
@@ -491,23 +526,24 @@ async def callback_handler(client: Client, query: CallbackQuery):
     # HOW TO USE MENU
     elif data == "how_to_use":
         text = (
-            "<b>📖 HOW TO USE EDITMEDIA</b>\n"
+            "<b>📖 HOW TO USE EDITMEDIA 📖</b>\n"
+            "<blockquote>"
+            "ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ʏᴏᴜʀ sᴍᴀʀᴛ ɪᴍᴀɢᴇ ᴘʀᴏᴄᴇssɪɴɢ ᴍɪɴɪ ᴀᴘᴘ! ʜᴇʀᴇ ɪs ᴡʜᴀᴛ ʏᴏᴜ ᴄᴀɴ ᴅᴏ ɪɴsɪᴅᴇ ᴏᴜʀ ᴡᴇʙ ᴀᴘᴘ:\n\n"
+            "🔹 <b>ꜰᴇᴀᴛᴜʀᴇs:</b>\n"
+            "1️⃣ <b>ɪᴍᴀɢᴇ ʟɪɴᴋ ɢᴇɴᴇʀᴀᴛɪᴏɴ:</b> ᴜᴘʟᴏᴀᴅ ᴀɴʏ ᴘʜᴏᴛᴏ ᴀɴᴅ ɢᴇᴛ ᴀ ᴅɪʀᴇᴄᴛ sʜᴀʀᴇᴀʙʟᴇ ʟɪɴᴋ ɪɴsᴛᴀɴᴛʟʏ.\n"
+            "2️⃣ <b>ɪᴍᴀɢᴇ ᴄᴏᴍᴘʀᴇssɪᴏɴ:</b> ʀᴇᴅᴜᴄᴇ ᴘʜᴏᴛᴏ ꜰɪʟᴇ sɪᴢᴇs sᴍᴏᴏᴛʜʟʏ ᴡɪᴛʜᴏᴜᴛ ʟᴏsɪɴɢ ᴏʀɪɢɪɴᴀʟ ǫᴜᴀʟɪᴛʏ.\n"
+            "3️⃣ <b>ɪᴍᴀɢᴇ ᴛᴏ ᴘᴅꜰ:</b> ᴄᴏɴᴠᴇʀᴛ ʏᴏᴜʀ ɪᴍᴀɢᴇs ɪɴᴛᴏ ʜɪɢʜ-ǫᴜᴀʟɪᴛʏ ᴘᴅꜰ ᴅᴏᴄᴜᴍᴇɴᴛs.\n\n"
+            "🪙 <b>ᴀʙᴏᴜᴛ ᴄʀᴇᴅɪᴛs:</b>\n"
+            "ʏᴏᴜ ɴᴇᴇᴅ ᴄʀᴇᴅɪᴛs ᴛᴏ ᴜsᴇ ᴛʜᴇsᴇ ᴘʀᴇᴍɪᴜᴍ ꜰᴇᴀᴛᴜʀᴇs. ᴇᴀʀɴ ᴍᴏʀᴇ ᴄʀᴇᴅɪᴛs ʙʏ ʀᴇꜰᴇʀʀɪɴɢ ꜰʀɪᴇɴᴅs!\n"
+            "<i>(ɴᴏᴛᴇ: ɪꜰ ʏᴏᴜ ᴀʀᴇ ᴏᴜᴛ ᴏꜰ ᴄʀᴇᴅɪᴛs, ʏᴏᴜ ᴄᴀɴ ᴄᴏɴᴛᴀᴄᴛ ᴛʜᴇ ᴀᴅᴍɪɴ ᴠɪᴀ sᴜᴘᴘᴏʀᴛ ᴛᴏ ᴍᴀɴᴜᴀʟʟʏ ᴀᴅᴅ ᴏʀ ʀᴇsᴇᴛ ʏᴏᴜʀ ᴄʀᴇᴅɪᴛs.)</i>\n"
             "━━━━━━━━━━━━━━━━━━\n"
-            "Welcome to your smart Image Processing Mini App! Here is what you can do inside our Web App:\n\n"
-            "🔹 <b>Features:</b>\n"
-            "1️⃣ <b>Image Link Generation:</b> Upload any photo and get a direct shareable link instantly.\n"
-            "2️⃣ <b>Image Compression:</b> Reduce photo file sizes smoothly without losing original quality.\n"
-            "3️⃣ <b>Image to PDF:</b> Convert your images into high-quality PDF documents.\n\n"
-            "🪙 <b>About Credits:</b>\n"
-            "You need Credits to use these premium features. Earn more credits by referring friends!\n"
-            "<i>(Note: If you are out of credits, you can contact the Admin via Support to manually add or reset your credits.)</i>\n"
-            "━━━━━━━━━━━━━━━━━━\n"
-            "👇 <i>Navigate back or contact support.</i>"
+            "👇 <i>ɴᴀᴠɪɢᴀᴛᴇ ʙᴀᴄᴋ ᴏʀ ᴄᴏɴᴛᴀᴄᴛ sᴜᴘᴘᴏʀᴛ.</i>"
+            "</blockquote>"
         )
         keyboard = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("🔙 Back", callback_data="main_menu"),
-                InlineKeyboardButton("🎧 Support", callback_data="support")
+                InlineKeyboardButton("🔙 Back", callback_data="main_menu", style="primary"),
+                InlineKeyboardButton("🎧 Support", callback_data="support", style="primary")
             ]
         ])
         await query.message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
@@ -529,20 +565,21 @@ async def callback_handler(client: Client, query: CallbackQuery):
         share_url = f"https://t.me/share/url?url={invite_link}&text={encoded_promo}"
 
         text = (
-            "<b>🎁 REFER & EARN CREDITS</b>\n"
-            "━━━━━━━━━━━━━━━━━━\n"
-            "Invite your friends to EDITMEDIA Bot and get rewarded with free credits!\n\n"
-            "💰 <b>Reward:</b> Earn <b>5 Credits</b> for every new friend who joins the bot using your unique invite link.\n\n"
-            "🔗 <b>Your Invite Link:</b>\n"
+            "<b>🎁 REFER & EARN CREDITS 🎁</b>\n"
+            "<blockquote>"
+            "ɪɴᴠɪᴛᴇ ʏᴏᴜʀ ꜰʀɪᴇɴᴅs ᴛᴏ ᴇᴅɪᴛᴍᴇᴅɪᴀ ʙᴏᴛ ᴀɴᴅ ɢᴇᴛ ʀᴇᴡᴀʀᴅᴇᴅ ᴡɪᴛʜ ꜰʀᴇᴇ ᴄʀᴇᴅɪᴛs!\n\n"
+            "💰 <b>ʀᴇᴡᴀʀᴅ:</b> ᴇᴀʀɴ <b>5 ᴄʀᴇᴅɪᴛs</b> ꜰᴏʀ ᴇᴠᴇʀʏ ɴᴇᴡ ꜰʀɪᴇɴᴅ ᴡʜᴏ ᴊᴏɪɴs ᴛʜᴇ ʙᴏᴛ ᴜsɪɴɢ ʏᴏᴜʀ ᴜɴɪǫᴜᴇ ɪɴᴠɪᴛᴇ ʟɪɴᴋ.\n\n"
+            "🔗 <b>ʏᴏᴜʀ ɪɴᴠɪᴛᴇ ʟɪɴᴋ:</b>\n"
             f"<code>{invite_link}</code>\n\n"
-            f"📊 <b>Total Referrals:</b> {referral_count}\n"
+            f"📊 <b>ᴛᴏᴛᴀʟ ʀᴇꜰᴇʀʀᴀʟs:</b> {referral_count}\n"
             "━━━━━━━━━━━━━━━━━━\n"
-            "👇 <i>Share your link with friends or go back.</i>"
+            "👇 <i>sʜᴀʀᴇ ʏᴏᴜʀ ʟɪɴᴋ ᴡɪᴛʜ ꜰʀɪᴇɴᴅs ᴏʀ ɢᴏ ʙᴀᴄᴋ.</i>"
+            "</blockquote>"
         )
         keyboard = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("🔙 Back", callback_data="main_menu"),
-                InlineKeyboardButton("↗️ Share with Friends", url=share_url)
+                InlineKeyboardButton("🔙 Back", callback_data="main_menu", style="primary"),
+                InlineKeyboardButton("↗️ Share with Friends", url=share_url, style="primary")
             ]
         ])
         await query.message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
@@ -551,16 +588,17 @@ async def callback_handler(client: Client, query: CallbackQuery):
     # SUPPORT MENU
     elif data == "support":
         text = (
-            "📞 sᴜᴘᴘᴏʀᴛ & ᴀssɪsᴛᴀɴᴄᴇ\n"
+            "<b>📞 SUPPORT & ASSISTANCE 📞</b>\n"
+            "<blockquote>"
+            "ɪꜰ ʏᴏᴜ ʜᴀᴠᴇ ᴀɴʏ ᴘʀᴏʙʟᴇᴍs, ʏᴏᴜ ᴄᴀɴ ᴍᴇssᴀɢᴇ ᴍᴇ.\n\n"
+            "👤 <b>ᴀᴅᴍɪɴ:</b> @DASFAIRSELLER01\n"
+            "🤖 <b>sᴜᴘᴘᴏʀᴛ:</b> @DASASISSTANT_BOT\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            "ɪғ ʏᴏᴜ ʜᴀᴠᴇ ᴀɴʏ ᴘʀᴏʙʟᴇᴍs, ʏᴏᴜ ᴄᴀɴ ᴍᴇssᴀɢᴇ ᴍᴇ.\n\n"
-            "👤 ᴀᴅᴍɪɴ: @DASFAIRSELLER01\n"
-            "🤖 sᴜᴘᴘᴏʀᴛ: @DASASISSTANT_BOT\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "ᴄᴏɴᴛɪɴᴜᴇ ᴡɪᴛʜ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ 👇"
+            "<i>ᴄᴏɴᴛɪɴᴜᴇ ᴡɪᴛʜ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ 👇</i>"
+            "</blockquote>"
         )
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔙 Back", callback_data="main_menu")]
+            [InlineKeyboardButton("🔙 Back", callback_data="main_menu", style="primary")]
         ])
         await query.message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
         await query.answer()
@@ -595,14 +633,15 @@ async def callback_handler(client: Client, query: CallbackQuery):
 
         admin_states[ADMIN_ID] = "broadcast"
         text = (
-            "<b>📢 BROADCAST MESSAGE</b>\n"
+            "<b>📢 BROADCAST MESSAGE 📢</b>\n"
+            "<blockquote>"
+            "sᴇɴᴅ ᴏʀ ꜰᴏʀᴡᴀʀᴅ ᴛʜᴇ ᴍᴇssᴀɢᴇ (ᴛᴇxᴛ, ᴘʜᴏᴛᴏ, ᴠɪᴅᴇᴏ, ᴅᴏᴄᴜᴍᴇɴᴛ) ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ʙʀᴏᴀᴅᴄᴀsᴛ ᴛᴏ ᴀʟʟ ʀᴇɢɪsᴛᴇʀᴇᴅ ᴜsᴇʀs.\n"
             "━━━━━━━━━━━━━━━━━━\n"
-            "Send or forward the message (Text, Photo, Video, Document) you want to broadcast to all registered users.\n"
-            "━━━━━━━━━━━━━━━━━━\n"
-            "👇 <i>Tap cancel below to abort.</i>"
+            "👇 <i>ᴛᴀᴘ ᴄᴀɴᴄᴇʟ ʙᴇʟᴏᴡ ᴛᴏ ᴀʙᴏʀᴛ.</i>"
+            "</blockquote>"
         )
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel")]
+            [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel", style="danger")]
         ])
         await query.message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
         await query.answer()
@@ -614,17 +653,18 @@ async def callback_handler(client: Client, query: CallbackQuery):
             return
 
         text = (
-            "<b>💰 MANAGE CREDITS</b>\n"
-            "━━━━━━━━━━━━━━━━━━\n"
-            "Select an action below to update or reset user credits:\n"
+            "<b>💰 MANAGE CREDITS 💰</b>\n"
+            "<blockquote>"
+            "sᴇʟᴇᴄᴛ ᴀɴ ᴀᴄᴛɪᴏɴ ʙᴇʟᴏᴡ ᴛᴏ ᴜᴘᴅᴀᴛᴇ ᴏʀ ʀᴇsᴇᴛ ᴜsᴇʀ ᴄʀᴇᴅɪᴛs:\n"
             "━━━━━━━━━━━━━━━━━━"
+            "</blockquote>"
         )
         keyboard = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("➕ Add / Edit Credits", callback_data="admin_act_credit"),
-                InlineKeyboardButton("🔄 Reset Credits", callback_data="admin_act_reset")
+                InlineKeyboardButton("➕ Add / Edit Credits", callback_data="admin_act_credit", style="success"),
+                InlineKeyboardButton("🔄 Reset Credits", callback_data="admin_act_reset", style="danger")
             ],
-            [InlineKeyboardButton("🔙 Back to Admin Panel", callback_data="admin_panel")]
+            [InlineKeyboardButton("🔙 Back to Admin Panel", callback_data="admin_panel", style="primary")]
         ])
         await query.message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
         await query.answer()
@@ -637,15 +677,16 @@ async def callback_handler(client: Client, query: CallbackQuery):
 
         admin_states[ADMIN_ID] = "credit"
         text = (
-            "<b>➕ ADD / EDIT CREDITS</b>\n"
+            "<b>➕ ADD / EDIT CREDITS ➕</b>\n"
+            "<blockquote>"
+            "ᴘʟᴇᴀsᴇ sᴇɴᴅ ᴛʜᴇ <b>ᴜsᴇʀ ɪᴅ</b> ᴀɴᴅ ᴛʜᴇ ɴᴇᴡ <b>ᴄʀᴇᴅɪᴛ ᴀᴍᴏᴜɴᴛ</b> sᴇᴘᴀʀᴀᴛᴇᴅ ʙʏ ᴀ sᴘᴀᴄᴇ.\n\n"
+            "<i>ᴇxᴀᴍᴘʟᴇ:</i> <code>123456789 50</code>\n"
             "━━━━━━━━━━━━━━━━━━\n"
-            "Please send the <b>User ID</b> and the new <b>Credit Amount</b> separated by a space.\n\n"
-            "<i>Example:</i> <code>123456789 50</code>\n"
-            "━━━━━━━━━━━━━━━━━━\n"
-            "👇 <i>Tap cancel below to abort.</i>"
+            "👇 <i>ᴛᴀᴘ ᴄᴀɴᴄᴇʟ ʙᴇʟᴏᴡ ᴛᴏ ᴀʙᴏʀᴛ.</i>"
+            "</blockquote>"
         )
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel")]
+            [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel", style="danger")]
         ])
         await query.message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
         await query.answer()
@@ -658,15 +699,16 @@ async def callback_handler(client: Client, query: CallbackQuery):
 
         admin_states[ADMIN_ID] = "reset"
         text = (
-            "<b>🔄 RESET CREDITS</b>\n"
+            "<b>🔄 RESET CREDITS 🔄</b>\n"
+            "<blockquote>"
+            "ᴘʟᴇᴀsᴇ sᴇɴᴅ ᴛʜᴇ <b>ᴜsᴇʀ ɪᴅ</b> ᴡʜᴏsᴇ ᴄʀᴇᴅɪᴛs ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ʀᴇsᴇᴛ ᴛᴏ ᴅᴇꜰᴀᴜʟᴛ (10).\n\n"
+            "<i>ᴇxᴀᴍᴘʟᴇ:</i> <code>123456789</code>\n"
             "━━━━━━━━━━━━━━━━━━\n"
-            "Please send the <b>User ID</b> whose credits you want to reset to default (10).\n\n"
-            "<i>Example:</i> <code>123456789</code>\n"
-            "━━━━━━━━━━━━━━━━━━\n"
-            "👇 <i>Tap cancel below to abort.</i>"
+            "👇 <i>ᴛᴀᴘ ᴄᴀɴᴄᴇʟ ʙᴇʟᴏᴡ ᴛᴏ ᴀʙᴏʀᴛ.</i>"
+            "</blockquote>"
         )
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel")]
+            [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel", style="danger")]
         ])
         await query.message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
         await query.answer()
@@ -678,17 +720,18 @@ async def callback_handler(client: Client, query: CallbackQuery):
             return
 
         text = (
-            "<b>🚫 BAN / UNBAN USERS</b>\n"
-            "━━━━━━━━━━━━━━━━━━\n"
-            "Select whether to ban or unban a user from using the bot:\n"
+            "<b>🚫 BAN / UNBAN USERS 🚫</b>\n"
+            "<blockquote>"
+            "sᴇʟᴇᴄᴛ ᴡʜᴇᴛʜᴇʀ ᴛᴏ ʙᴀɴ ᴏʀ ᴜɴʙᴀɴ ᴀ ᴜsᴇʀ ꜰʀᴏᴍ ᴜsɪɴɢ ᴛʜᴇ ʙᴏᴛ:\n"
             "━━━━━━━━━━━━━━━━━━"
+            "</blockquote>"
         )
         keyboard = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("🚫 Ban User", callback_data="admin_act_ban"),
-                InlineKeyboardButton("✅ Unban User", callback_data="admin_act_unban")
+                InlineKeyboardButton("🚫 Ban User", callback_data="admin_act_ban", style="danger"),
+                InlineKeyboardButton("✅ Unban User", callback_data="admin_act_unban", style="success")
             ],
-            [InlineKeyboardButton("🔙 Back to Admin Panel", callback_data="admin_panel")]
+            [InlineKeyboardButton("🔙 Back to Admin Panel", callback_data="admin_panel", style="primary")]
         ])
         await query.message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
         await query.answer()
@@ -701,15 +744,16 @@ async def callback_handler(client: Client, query: CallbackQuery):
 
         admin_states[ADMIN_ID] = "ban"
         text = (
-            "<b>🚫 BAN USER</b>\n"
+            "<b>🚫 BAN USER 🚫</b>\n"
+            "<blockquote>"
+            "ᴘʟᴇᴀsᴇ sᴇɴᴅ ᴛʜᴇ <b>ᴜsᴇʀ ɪᴅ</b> ʏᴏᴜ ᴡɪsʜ ᴛᴏ ʙᴀɴ.\n\n"
+            "<i>ᴇxᴀᴍᴘʟᴇ:</i> <code>123456789</code>\n"
             "━━━━━━━━━━━━━━━━━━\n"
-            "Please send the <b>User ID</b> you wish to ban.\n\n"
-            "<i>Example:</i> <code>123456789</code>\n"
-            "━━━━━━━━━━━━━━━━━━\n"
-            "👇 <i>Tap cancel below to abort.</i>"
+            "👇 <i>ᴛᴀᴘ ᴄᴀɴᴄᴇʟ ʙᴇʟᴏᴡ ᴛᴏ ᴀʙᴏʀᴛ.</i>"
+            "</blockquote>"
         )
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel")]
+            [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel", style="danger")]
         ])
         await query.message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
         await query.answer()
@@ -722,15 +766,16 @@ async def callback_handler(client: Client, query: CallbackQuery):
 
         admin_states[ADMIN_ID] = "unban"
         text = (
-            "<b>✅ UNBAN USER</b>\n"
+            "<b>✅ UNBAN USER ✅</b>\n"
+            "<blockquote>"
+            "ᴘʟᴇᴀsᴇ sᴇɴᴅ ᴛʜᴇ <b>ᴜsᴇʀ ɪᴅ</b> ʏᴏᴜ ᴡɪsʜ ᴛᴏ ᴜɴʙᴀɴ.\n\n"
+            "<i>ᴇxᴀᴍᴘʟᴇ:</i> <code>123456789</code>\n"
             "━━━━━━━━━━━━━━━━━━\n"
-            "Please send the <b>User ID</b> you wish to unban.\n\n"
-            "<i>Example:</i> <code>123456789</code>\n"
-            "━━━━━━━━━━━━━━━━━━\n"
-            "👇 <i>Tap cancel below to abort.</i>"
+            "👇 <i>ᴛᴀᴘ ᴄᴀɴᴄᴇʟ ʙᴇʟᴏᴡ ᴛᴏ ᴀʙᴏʀᴛ.</i>"
+            "</blockquote>"
         )
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel")]
+            [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel", style="danger")]
         ])
         await query.message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
         await query.answer()
