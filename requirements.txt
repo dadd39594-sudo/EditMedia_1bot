@@ -5,5 +5,4 @@ requests==2.31.0
 firebase-admin==6.2.0
 gunicorn==21.2.0
 aiohttp
-pyrogram
-tgcrypto
+pyTelegramBotAPI
