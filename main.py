@@ -30,6 +30,7 @@ def view_log():
 bot_code = r"""
 import os
 import sys
+import json
 import html
 import urllib.parse
 import asyncio
@@ -56,7 +57,7 @@ try:
         Message
     )
     import firebase_admin
-    from firebase_admin import firestore
+    from firebase_admin import credentials, firestore
     print("✅ Pyrogram & Firebase libraries loaded!", flush=True)
 except Exception as e:
     print(f"❌ MODULE ERROR: {e}", flush=True)
@@ -65,11 +66,17 @@ except Exception as e:
 # Initialize Firebase
 try:
     if not firebase_admin._apps:
-        firebase_admin.initialize_app()
+        firebase_json_str = os.environ.get("FIREBASE_CRED_JSON")
+        if firebase_json_str:
+            cred_dict = json.loads(firebase_json_str)
+            cred = credentials.Certificate(cred_dict)
+            firebase_admin.initialize_app(cred)
+        else:
+            firebase_admin.initialize_app()
     db = firestore.client()
     print("✅ Firebase initialized successfully!", flush=True)
 except Exception as e:
-    print(f"⚠️ Firebase initialization warning: {e}", flush=True)
+    print(f"⚠️ Firebase initialization failed: {e}", flush=True)
     db = None
 
 # Configuration
