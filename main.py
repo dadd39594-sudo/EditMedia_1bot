@@ -27,7 +27,7 @@ def view_log():
 # ==========================================
 # ২. PYROGRAM BOT
 # ==========================================
-bot_code = """
+bot_code = r"""
 import os
 import sys
 import html
@@ -280,9 +280,12 @@ async def message_dispatcher(client: Client, message: Message):
                     failed_count += 1
 
             await status_msg.edit_text(
-                f"<b>📢 Broadcast Completed!</b>\n━━━━━━━━━━━━━━━━━━\n"
-                f"✅ <b>Successfully Delivered:</b> {sent_count}\n"
-                f"❌ <b>Failed / Blocked:</b> {failed_count}",
+                (
+                    "<b>📢 Broadcast Completed!</b>\n"
+                    "━━━━━━━━━━━━━━━━━━\n"
+                    f"✅ <b>Successfully Delivered:</b> {sent_count}\n"
+                    f"❌ <b>Failed / Blocked:</b> {failed_count}"
+                ),
                 reply_markup=back_to_admin_kb,
                 parse_mode=enums.ParseMode.HTML
             )
@@ -332,7 +335,10 @@ async def message_dispatcher(client: Client, message: Message):
                     await message.reply_text("❌ User not found in database.", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
             else:
                 await message.reply_text(
-                    "❌ <b>Invalid format!</b> Please provide both User ID and Amount separated by a space.\n<i>Example:</i> <code>123456789 50</code>",
+                    (
+                        "❌ <b>Invalid format!</b> Please provide both User ID and Amount separated by a space.\n"
+                        "<i>Example:</i> <code>123456789 50</code>"
+                    ),
                     reply_markup=back_to_admin_kb,
                     parse_mode=enums.ParseMode.HTML
                 )
