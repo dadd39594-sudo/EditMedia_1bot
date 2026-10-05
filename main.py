@@ -157,8 +157,9 @@ def get_admin_panel_components():
         total_users = sum(1 for _ in users_docs)
 
     text = (
-        "<b>⚙️ ADMIN CONTROL PANEL ⚙️</b>\n"
         "<blockquote>"
+        "<b>⚙️ ADMIN CONTROL PANEL ⚙️</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
         "ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ ᴄᴏɴᴛʀᴏʟ ᴄᴇɴᴛᴇʀ, ʙᴏss!\n"
         "ʜᴇʀᴇ ʏᴏᴜ ᴄᴀɴ ᴍᴀɴᴀɢᴇ ʏᴏᴜʀ ᴇᴅɪᴛᴍᴇᴅɪᴀ ʙᴏᴛ.\n\n"
         f"📊 <b>ᴛᴏᴛᴀʟ ᴜsᴇʀs:</b> {total_users}\n"
@@ -180,8 +181,9 @@ def get_welcome_text(user, credits_val, referrals_val):
     full_name = esc(user.first_name + (" " + user.last_name if user.last_name else ""))
     profile = f"@{user.username}" if user.username else f"<a href='tg://user?id={user.id}'>Link</a>"
     return (
-        "<b>✨ WELCOME TO EDITMEDIA BOT ✨</b>\n"
         "<blockquote>"
+        "<b>✨ ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴇᴅɪᴛᴍᴇᴅɪᴀ ʙᴏᴛ ✨</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
         "<i>ʏᴏᴜʀ ᴀʟʟ-ɪɴ-ᴏɴᴇ ᴛᴇʟᴇɢʀᴀᴍ ᴍɪɴɪ ᴀᴘᴘ ꜰᴏʀ sᴍᴀʀᴛ ɪᴍᴀɢᴇ ᴘʀᴏᴄᴇssɪɴɢ. ᴏᴘᴇɴ ᴛʜᴇ ᴡᴇʙ ᴀᴘᴘ ᴛᴏ ᴇᴀsɪʟʏ ɢᴇɴᴇʀᴀᴛᴇ ɪᴍᴀɢᴇ ʟɪɴᴋs, ᴄᴏᴍᴘʀᴇss ᴘʜᴏᴛᴏs, ᴀɴᴅ ᴄᴏɴᴠᴇʀᴛ ɪᴍᴀɢᴇs ᴛᴏ ᴘᴅꜰ ɪɴ sᴇᴄᴏɴᴅs!</i>\n"
         "━━━━━━━━━━━━━━━━━━\n"
         f"👤 <b>ɴᴀᴍᴇ:</b> {full_name}\n"
@@ -202,7 +204,7 @@ async def start_handler(client: Client, message: Message):
         return
 
     if is_user_banned(user.id):
-        await message.reply_text("<b>⛔ You have been banned from using this bot.</b>", parse_mode=enums.ParseMode.HTML)
+        await message.reply_text("<blockquote><b>⛔ You have been banned from using this bot.</b></blockquote>", parse_mode=enums.ParseMode.HTML)
         return
 
     user_ref = get_user_ref(user.id)
@@ -242,9 +244,11 @@ async def start_handler(client: Client, message: Message):
                     await client.send_message(
                         chat_id=referrer_id,
                         text=(
-                            "<b>🎁 REFERRAL BONUS 🎁</b>\n"
                             "<blockquote>"
-                            "ᴀ ɴᴇᴡ ᴜsᴇʀ ᴊᴏɪɴᴇᴅ ᴜsɪɴɢ ʏᴏᴜʀ ʟɪɴᴋ. ʏᴏᴜ ᴇᴀʀɴᴇᴅ <b>+5 ᴄʀᴇᴅɪᴛs</b>!"
+                            "<b>🎁 REFERRAL BONUS 🎁</b>\n"
+                            "━━━━━━━━━━━━━━━━━━\n"
+                            "ᴀ ɴᴇᴡ ᴜsᴇʀ ᴊᴏɪɴᴇᴅ ᴜsɪɴɢ ʏᴏᴜʀ ʟɪɴᴋ. ʏᴏᴜ ᴇᴀʀɴᴇᴅ <b>+5 ᴄʀᴇᴅɪᴛs</b>!\n"
+                            "━━━━━━━━━━━━━━━━━━"
                             "</blockquote>"
                         ),
                         parse_mode=enums.ParseMode.HTML
@@ -256,8 +260,9 @@ async def start_handler(client: Client, message: Message):
         if ADMIN_ID != 0:
             profile_link = f"@{user.username}" if user.username else f"<a href='tg://user?id={user.id}'>Link</a>"
             alert_text = (
-                "<b>🔔 NEW USER ALERT 🔔</b>\n"
                 "<blockquote>"
+                "<b>🔔 NEW USER ALERT 🔔</b>\n"
+                "━━━━━━━━━━━━━━━━━━\n"
                 "ᴀ ɴᴇᴡ ᴜsᴇʀ ʜᴀs ᴊᴜsᴛ sᴛᴀʀᴛᴇᴅ ᴛʜᴇ ʙᴏᴛ!\n"
                 "━━━━━━━━━━━━━━━━━━\n"
                 f"👤 <b>ɴᴀᴍᴇ:</b> {esc(user_data['name'])}\n"
@@ -290,8 +295,9 @@ async def message_dispatcher(client: Client, message: Message):
         if ADMIN_ID != 0:
             sender_name = esc(message.from_user.first_name if message.from_user else "User")
             alert_text = (
-                "<b>📩 NEW USER REQUEST 📩</b>\n"
                 "<blockquote>"
+                "<b>📩 NEW USER REQUEST 📩</b>\n"
+                "━━━━━━━━━━━━━━━━━━\n"
                 f"👤 <b>ꜰʀᴏᴍ:</b> {sender_name} (<code>{user_id}</code>)\n"
                 "━━━━━━━━━━━━━━━━━━"
                 "</blockquote>"
@@ -304,10 +310,12 @@ async def message_dispatcher(client: Client, message: Message):
 
         await message.reply_text(
             (
-                "<b>✅ REQUEST SENT ✅</b>\n"
                 "<blockquote>"
+                "<b>✅ REQUEST SENT ✅</b>\n"
+                "━━━━━━━━━━━━━━━━━━\n"
                 "ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ ʜᴀs ʙᴇᴇɴ sᴜᴄᴄᴇssꜰᴜʟʟʏ sᴇɴᴛ ᴛᴏ ᴛʜᴇ ᴀᴅᴍɪɴ!\n\n"
-                "👉 <i>ᴘʟᴇᴀsᴇ sᴇɴᴅ /start ᴛᴏ ɢᴏ ʙᴀᴄᴋ ᴛᴏ ᴛʜᴇ ᴍᴀɪɴ ᴍᴇɴᴜ.</i>"
+                "👉 <i>ᴘʟᴇᴀsᴇ sᴇɴᴅ /start ᴛᴏ ɢᴏ ʙᴀᴄᴋ ᴛᴏ ᴛʜᴇ ᴍᴀɪɴ ᴍᴇɴᴜ.</i>\n"
+                "━━━━━━━━━━━━━━━━━━"
                 "</blockquote>"
             ),
             parse_mode=enums.ParseMode.HTML
@@ -325,7 +333,7 @@ async def message_dispatcher(client: Client, message: Message):
         # ADMIN BROADCAST
         if state == "broadcast":
             status_msg = await message.reply_text(
-                "⏳ <i>Broadcasting message to all users...</i>",
+                "<blockquote>⏳ <i>Broadcasting message to all users...</i></blockquote>",
                 parse_mode=enums.ParseMode.HTML
             )
             users_ref = db.collection("users").stream() if db else []
@@ -345,10 +353,12 @@ async def message_dispatcher(client: Client, message: Message):
 
             await status_msg.edit_text(
                 (
-                    "<b>📢 BROADCAST COMPLETED 📢</b>\n"
                     "<blockquote>"
+                    "<b>📢 BROADCAST COMPLETED 📢</b>\n"
+                    "━━━━━━━━━━━━━━━━━━\n"
                     f"✅ <b>sᴜᴄᴄᴇssꜰᴜʟʟʏ ᴅᴇʟɪᴠᴇʀᴇᴅ:</b> {sent_count}\n"
-                    f"❌ <b>ꜰᴀɪʟᴇᴅ / ʙʟᴏᴄᴋᴇᴅ:</b> {failed_count}"
+                    f"❌ <b>ꜰᴀɪʟᴇᴅ / ʙʟᴏᴄᴋᴇᴅ:</b> {failed_count}\n"
+                    "━━━━━━━━━━━━━━━━━━"
                     "</blockquote>"
                 ),
                 reply_markup=back_to_admin_kb,
@@ -360,30 +370,30 @@ async def message_dispatcher(client: Client, message: Message):
         elif state == "ban":
             text_val = message.text.strip() if message.text else ""
             if not text_val.isdigit():
-                await message.reply_text("❌ <b>Invalid ID!</b> Please send a numeric User ID.", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
+                await message.reply_text("<blockquote>❌ <b>Invalid ID!</b> Please send a numeric User ID.</blockquote>", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
                 return
             target_id = int(text_val)
             target_ref = get_user_ref(target_id)
             if target_ref and target_ref.get().exists:
                 target_ref.update({"is_banned": True})
-                await message.reply_text(f"✅ User <code>{target_id}</code> has been <b>banned</b>.", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
+                await message.reply_text(f"<blockquote>✅ User <code>{target_id}</code> has been <b>banned</b>.</blockquote>", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
             else:
-                await message.reply_text("❌ User not found in database.", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
+                await message.reply_text("<blockquote>❌ User not found in database.</blockquote>", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
             return
 
         # ADMIN UNBAN USER
         elif state == "unban":
             text_val = message.text.strip() if message.text else ""
             if not text_val.isdigit():
-                await message.reply_text("❌ <b>Invalid ID!</b> Please send a numeric User ID.", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
+                await message.reply_text("<blockquote>❌ <b>Invalid ID!</b> Please send a numeric User ID.</blockquote>", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
                 return
             target_id = int(text_val)
             target_ref = get_user_ref(target_id)
             if target_ref and target_ref.get().exists:
                 target_ref.update({"is_banned": False})
-                await message.reply_text(f"✅ User <code>{target_id}</code> has been <b>unbanned</b>.", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
+                await message.reply_text(f"<blockquote>✅ User <code>{target_id}</code> has been <b>unbanned</b>.</blockquote>", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
             else:
-                await message.reply_text("❌ User not found in database.", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
+                await message.reply_text("<blockquote>❌ User not found in database.</blockquote>", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
             return
 
         # ADMIN ADD / EDIT CREDITS
@@ -398,7 +408,7 @@ async def message_dispatcher(client: Client, message: Message):
                 if target_doc and target_doc.exists:
                     old_credits = target_doc.to_dict().get("credits", 10)
                     target_ref.update({"credits": amount})
-                    await message.reply_text(f"✅ Credits for user <code>{target_id}</code> updated to <b>{amount}</b>.", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
+                    await message.reply_text(f"<blockquote>✅ Credits for user <code>{target_id}</code> updated to <b>{amount}</b>.</blockquote>", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
 
                     # Calculate diff and notify target user
                     diff = amount - old_credits
@@ -410,8 +420,9 @@ async def message_dispatcher(client: Client, message: Message):
                         change_text = "ℹ️ ʏᴏᴜʀ ᴄʀᴇᴅɪᴛ ʙᴀʟᴀɴᴄᴇ ʜᴀs ʙᴇᴇɴ ᴜᴘᴅᴀᴛᴇᴅ."
 
                     user_alert = (
-                        "<b>💰 CREDIT UPDATE ALERT 💰</b>\n"
                         "<blockquote>"
+                        "<b>💰 CREDIT UPDATE ALERT 💰</b>\n"
+                        "━━━━━━━━━━━━━━━━━━\n"
                         f"{change_text}\n\n"
                         f"💳 <b>ɴᴇᴡ ʙᴀʟᴀɴᴄᴇ:</b> {amount}\n"
                         "━━━━━━━━━━━━━━━━━━\n"
@@ -426,12 +437,14 @@ async def message_dispatcher(client: Client, message: Message):
                     except Exception as e:
                         print(f"⚠️ Could not notify user {target_id}: {e}", flush=True)
                 else:
-                    await message.reply_text("❌ User not found in database.", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
+                    await message.reply_text("<blockquote>❌ User not found in database.</blockquote>", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
             else:
                 await message.reply_text(
                     (
+                        "<blockquote>"
                         "❌ <b>Invalid format!</b> Please provide both User ID and Amount separated by a space.\n"
                         "<i>Example:</i> <code>123456789 50</code>"
+                        "</blockquote>"
                     ),
                     reply_markup=back_to_admin_kb,
                     parse_mode=enums.ParseMode.HTML
@@ -442,7 +455,7 @@ async def message_dispatcher(client: Client, message: Message):
         elif state == "reset":
             text_val = message.text.strip() if message.text else ""
             if not text_val.isdigit():
-                await message.reply_text("❌ <b>Invalid ID!</b> Please send a numeric User ID.", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
+                await message.reply_text("<blockquote>❌ <b>Invalid ID!</b> Please send a numeric User ID.</blockquote>", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
                 return
             target_id = int(text_val)
             target_ref = get_user_ref(target_id)
@@ -452,7 +465,7 @@ async def message_dispatcher(client: Client, message: Message):
                 old_credits = target_doc.to_dict().get("credits", 10)
                 new_credits = 10
                 target_ref.update({"credits": new_credits})
-                await message.reply_text(f"🔄 Credits for user <code>{target_id}</code> have been reset to <b>10</b>.", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
+                await message.reply_text(f"<blockquote>🔄 Credits for user <code>{target_id}</code> have been reset to <b>10</b>.</blockquote>", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
 
                 # Calculate diff and notify target user
                 diff = new_credits - old_credits
@@ -464,8 +477,9 @@ async def message_dispatcher(client: Client, message: Message):
                     change_text = "🔄 ʏᴏᴜʀ ᴄʀᴇᴅɪᴛs ʜᴀᴠᴇ ʙᴇᴇɴ ʀᴇsᴇᴛ ᴛᴏ ᴛʜᴇ ᴅᴇꜰᴀᴜʟᴛ ʙᴀʟᴀɴᴄᴇ (10)."
 
                 user_alert = (
-                    "<b>💰 CREDIT UPDATE ALERT 💰</b>\n"
                     "<blockquote>"
+                    "<b>💰 CREDIT UPDATE ALERT 💰</b>\n"
+                    "━━━━━━━━━━━━━━━━━━\n"
                     f"{change_text}\n\n"
                     f"💳 <b>ɴᴇᴡ ʙᴀʟᴀɴᴄᴇ:</b> {new_credits}\n"
                     "━━━━━━━━━━━━━━━━━━\n"
@@ -480,11 +494,11 @@ async def message_dispatcher(client: Client, message: Message):
                 except Exception as e:
                     print(f"⚠️ Could not notify user {target_id}: {e}", flush=True)
             else:
-                await message.reply_text("❌ User not found in database.", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
+                await message.reply_text("<blockquote>❌ User not found in database.</blockquote>", reply_markup=back_to_admin_kb, parse_mode=enums.ParseMode.HTML)
             return
 
     if is_user_banned(user_id):
-        await message.reply_text("<b>⛔ You have been banned from using this bot.</b>", parse_mode=enums.ParseMode.HTML)
+        await message.reply_text("<blockquote><b>⛔ You have been banned from using this bot.</b></blockquote>", parse_mode=enums.ParseMode.HTML)
         return
 
 # --- CALLBACK QUERY NAVIGATION ---
@@ -501,10 +515,12 @@ async def callback_handler(client: Client, query: CallbackQuery):
     if data == "user_request":
         user_states[user.id] = "awaiting_request"
         text = (
-            "<b>💬 SEND A REQUEST 💬</b>\n"
             "<blockquote>"
+            "<b>💬 SEND A REQUEST 💬</b>\n"
+            "━━━━━━━━━━━━━━━━━━\n"
             "ᴛʏᴘᴇ ʏᴏᴜʀ ᴍᴇssᴀɢᴇ ʙᴇʟᴏᴡ (ᴇ.ɢ., 'ᴘʟᴇᴀsᴇ ᴀᴅᴅ ᴍᴏʀᴇ ᴄʀᴇᴅɪᴛs') ᴀɴᴅ sᴇɴᴅ ɪᴛ.\n\n"
-            "<i>ɪ ᴡɪʟʟ ꜰᴏʀᴡᴀʀᴅ ɪᴛ ᴅɪʀᴇᴄᴛʟʏ ᴛᴏ ᴛʜᴇ ᴀᴅᴍɪɴ.</i>"
+            "<i>ɪ ᴡɪʟʟ ꜰᴏʀᴡᴀʀᴅ ɪᴛ ᴅɪʀᴇᴄᴛʟʏ ᴛᴏ ᴛʜᴇ ᴀᴅᴍɪɴ.</i>\n"
+            "━━━━━━━━━━━━━━━━━━"
             "</blockquote>"
         )
         keyboard = InlineKeyboardMarkup([
@@ -526,8 +542,9 @@ async def callback_handler(client: Client, query: CallbackQuery):
     # HOW TO USE MENU
     elif data == "how_to_use":
         text = (
-            "<b>📖 HOW TO USE EDITMEDIA 📖</b>\n"
             "<blockquote>"
+            "<b>📖 HOW TO USE EDITMEDIA 📖</b>\n"
+            "━━━━━━━━━━━━━━━━━━\n"
             "ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ʏᴏᴜʀ sᴍᴀʀᴛ ɪᴍᴀɢᴇ ᴘʀᴏᴄᴇssɪɴɢ ᴍɪɴɪ ᴀᴘᴘ! ʜᴇʀᴇ ɪs ᴡʜᴀᴛ ʏᴏᴜ ᴄᴀɴ ᴅᴏ ɪɴsɪᴅᴇ ᴏᴜʀ ᴡᴇʙ ᴀᴘᴘ:\n\n"
             "🔹 <b>ꜰᴇᴀᴛᴜʀᴇs:</b>\n"
             "1️⃣ <b>ɪᴍᴀɢᴇ ʟɪɴᴋ ɢᴇɴᴇʀᴀᴛɪᴏɴ:</b> ᴜᴘʟᴏᴀᴅ ᴀɴʏ ᴘʜᴏᴛᴏ ᴀɴᴅ ɢᴇᴛ ᴀ ᴅɪʀᴇᴄᴛ sʜᴀʀᴇᴀʙʟᴇ ʟɪɴᴋ ɪɴsᴛᴀɴᴛʟʏ.\n"
@@ -565,8 +582,9 @@ async def callback_handler(client: Client, query: CallbackQuery):
         share_url = f"https://t.me/share/url?url={invite_link}&text={encoded_promo}"
 
         text = (
-            "<b>🎁 REFER & EARN CREDITS 🎁</b>\n"
             "<blockquote>"
+            "<b>🎁 REFER & EARN CREDITS 🎁</b>\n"
+            "━━━━━━━━━━━━━━━━━━\n"
             "ɪɴᴠɪᴛᴇ ʏᴏᴜʀ ꜰʀɪᴇɴᴅs ᴛᴏ ᴇᴅɪᴛᴍᴇᴅɪᴀ ʙᴏᴛ ᴀɴᴅ ɢᴇᴛ ʀᴇᴡᴀʀᴅᴇᴅ ᴡɪᴛʜ ꜰʀᴇᴇ ᴄʀᴇᴅɪᴛs!\n\n"
             "💰 <b>ʀᴇᴡᴀʀᴅ:</b> ᴇᴀʀɴ <b>5 ᴄʀᴇᴅɪᴛs</b> ꜰᴏʀ ᴇᴠᴇʀʏ ɴᴇᴡ ꜰʀɪᴇɴᴅ ᴡʜᴏ ᴊᴏɪɴs ᴛʜᴇ ʙᴏᴛ ᴜsɪɴɢ ʏᴏᴜʀ ᴜɴɪǫᴜᴇ ɪɴᴠɪᴛᴇ ʟɪɴᴋ.\n\n"
             "🔗 <b>ʏᴏᴜʀ ɪɴᴠɪᴛᴇ ʟɪɴᴋ:</b>\n"
@@ -588,8 +606,9 @@ async def callback_handler(client: Client, query: CallbackQuery):
     # SUPPORT MENU
     elif data == "support":
         text = (
-            "<b>📞 SUPPORT & ASSISTANCE 📞</b>\n"
             "<blockquote>"
+            "<b>📞 SUPPORT & ASSISTANCE 📞</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
             "ɪꜰ ʏᴏᴜ ʜᴀᴠᴇ ᴀɴʏ ᴘʀᴏʙʟᴇᴍs, ʏᴏᴜ ᴄᴀɴ ᴍᴇssᴀɢᴇ ᴍᴇ.\n\n"
             "👤 <b>ᴀᴅᴍɪɴ:</b> @DASFAIRSELLER01\n"
             "🤖 <b>sᴜᴘᴘᴏʀᴛ:</b> @DASASISSTANT_BOT\n"
@@ -633,8 +652,9 @@ async def callback_handler(client: Client, query: CallbackQuery):
 
         admin_states[ADMIN_ID] = "broadcast"
         text = (
-            "<b>📢 BROADCAST MESSAGE 📢</b>\n"
             "<blockquote>"
+            "<b>📢 BROADCAST MESSAGE 📢</b>\n"
+            "━━━━━━━━━━━━━━━━━━\n"
             "sᴇɴᴅ ᴏʀ ꜰᴏʀᴡᴀʀᴅ ᴛʜᴇ ᴍᴇssᴀɢᴇ (ᴛᴇxᴛ, ᴘʜᴏᴛᴏ, ᴠɪᴅᴇᴏ, ᴅᴏᴄᴜᴍᴇɴᴛ) ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ʙʀᴏᴀᴅᴄᴀsᴛ ᴛᴏ ᴀʟʟ ʀᴇɢɪsᴛᴇʀᴇᴅ ᴜsᴇʀs.\n"
             "━━━━━━━━━━━━━━━━━━\n"
             "👇 <i>ᴛᴀᴘ ᴄᴀɴᴄᴇʟ ʙᴇʟᴏᴡ ᴛᴏ ᴀʙᴏʀᴛ.</i>"
@@ -653,8 +673,9 @@ async def callback_handler(client: Client, query: CallbackQuery):
             return
 
         text = (
-            "<b>💰 MANAGE CREDITS 💰</b>\n"
             "<blockquote>"
+            "<b>💰 MANAGE CREDITS 💰</b>\n"
+            "━━━━━━━━━━━━━━━━━━\n"
             "sᴇʟᴇᴄᴛ ᴀɴ ᴀᴄᴛɪᴏɴ ʙᴇʟᴏᴡ ᴛᴏ ᴜᴘᴅᴀᴛᴇ ᴏʀ ʀᴇsᴇᴛ ᴜsᴇʀ ᴄʀᴇᴅɪᴛs:\n"
             "━━━━━━━━━━━━━━━━━━"
             "</blockquote>"
@@ -677,8 +698,9 @@ async def callback_handler(client: Client, query: CallbackQuery):
 
         admin_states[ADMIN_ID] = "credit"
         text = (
-            "<b>➕ ADD / EDIT CREDITS ➕</b>\n"
             "<blockquote>"
+            "<b>➕ ADD / EDIT CREDITS ➕</b>\n"
+            "━━━━━━━━━━━━━━━━━━\n"
             "ᴘʟᴇᴀsᴇ sᴇɴᴅ ᴛʜᴇ <b>ᴜsᴇʀ ɪᴅ</b> ᴀɴᴅ ᴛʜᴇ ɴᴇᴡ <b>ᴄʀᴇᴅɪᴛ ᴀᴍᴏᴜɴᴛ</b> sᴇᴘᴀʀᴀᴛᴇᴅ ʙʏ ᴀ sᴘᴀᴄᴇ.\n\n"
             "<i>ᴇxᴀᴍᴘʟᴇ:</i> <code>123456789 50</code>\n"
             "━━━━━━━━━━━━━━━━━━\n"
@@ -699,8 +721,9 @@ async def callback_handler(client: Client, query: CallbackQuery):
 
         admin_states[ADMIN_ID] = "reset"
         text = (
-            "<b>🔄 RESET CREDITS 🔄</b>\n"
             "<blockquote>"
+            "<b>🔄 RESET CREDITS 🔄</b>\n"
+            "━━━━━━━━━━━━━━━━━━\n"
             "ᴘʟᴇᴀsᴇ sᴇɴᴅ ᴛʜᴇ <b>ᴜsᴇʀ ɪᴅ</b> ᴡʜᴏsᴇ ᴄʀᴇᴅɪᴛs ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ʀᴇsᴇᴛ ᴛᴏ ᴅᴇꜰᴀᴜʟᴛ (10).\n\n"
             "<i>ᴇxᴀᴍᴘʟᴇ:</i> <code>123456789</code>\n"
             "━━━━━━━━━━━━━━━━━━\n"
@@ -720,8 +743,9 @@ async def callback_handler(client: Client, query: CallbackQuery):
             return
 
         text = (
-            "<b>🚫 BAN / UNBAN USERS 🚫</b>\n"
             "<blockquote>"
+            "<b>🚫 BAN / UNBAN USERS 🚫</b>\n"
+            "━━━━━━━━━━━━━━━━━━\n"
             "sᴇʟᴇᴄᴛ ᴡʜᴇᴛʜᴇʀ ᴛᴏ ʙᴀɴ ᴏʀ ᴜɴʙᴀɴ ᴀ ᴜsᴇʀ ꜰʀᴏᴍ ᴜsɪɴɢ ᴛʜᴇ ʙᴏᴛ:\n"
             "━━━━━━━━━━━━━━━━━━"
             "</blockquote>"
@@ -744,8 +768,9 @@ async def callback_handler(client: Client, query: CallbackQuery):
 
         admin_states[ADMIN_ID] = "ban"
         text = (
-            "<b>🚫 BAN USER 🚫</b>\n"
             "<blockquote>"
+            "<b>🚫 BAN USER 🚫</b>\n"
+            "━━━━━━━━━━━━━━━━━━\n"
             "ᴘʟᴇᴀsᴇ sᴇɴᴅ ᴛʜᴇ <b>ᴜsᴇʀ ɪᴅ</b> ʏᴏᴜ ᴡɪsʜ ᴛᴏ ʙᴀɴ.\n\n"
             "<i>ᴇxᴀᴍᴘʟᴇ:</i> <code>123456789</code>\n"
             "━━━━━━━━━━━━━━━━━━\n"
@@ -766,8 +791,9 @@ async def callback_handler(client: Client, query: CallbackQuery):
 
         admin_states[ADMIN_ID] = "unban"
         text = (
-            "<b>✅ UNBAN USER ✅</b>\n"
             "<blockquote>"
+            "<b>✅ UNBAN USER ✅</b>\n"
+            "━━━━━━━━━━━━━━━━━━\n"
             "ᴘʟᴇᴀsᴇ sᴇɴᴅ ᴛʜᴇ <b>ᴜsᴇʀ ɪᴅ</b> ʏᴏᴜ ᴡɪsʜ ᴛᴏ ᴜɴʙᴀɴ.\n\n"
             "<i>ᴇxᴀᴍᴘʟᴇ:</i> <code>123456789</code>\n"
             "━━━━━━━━━━━━━━━━━━\n"
