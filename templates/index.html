@@ -15,6 +15,23 @@
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
+  <!-- Force Join Modal Overlay -->
+  <div class="fj-overlay" id="force-join-modal" style="display: none;">
+    <div class="fj-card">
+      <div class="fj-icon">🔒</div>
+      <h2 class="fj-title">Premium Tools Locked! 🔒</h2>
+      <p class="fj-subtext">Join our official Telegram channels to unlock all premium editing tools for free. Your status is verified automatically.</p>
+      
+      <!-- Container for dynamically injected join buttons -->
+      <div class="fj-channels-container" id="fj-channels-container"></div>
+      
+      <!-- Verification status indicator -->
+      <div class="fj-status" id="fj-status">
+        <i class="fa-solid fa-spinner fa-spin"></i> <span>⏳ Checking membership...</span>
+      </div>
+    </div>
+  </div>
+
   <div class="ps-app">
     <!-- Top Bar -->
     <header class="ps-header">
