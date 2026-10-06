@@ -2,23 +2,24 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>EditMedia Pro - Photoshop Mini App</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>EditMedia Pro - Telegram Studio</title>
   <!-- Telegram WebApp SDK -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <!-- Google Fonts & FontAwesome -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
-  <!-- App Styles -->
+  <!-- App Stylesheet -->
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
+
   <!-- Force Join Modal Overlay -->
   <div class="fj-overlay" id="force-join-modal" style="display: none;">
     <div class="fj-card">
-      <div class="fj-icon">🔒</div>
+      <div class="fj-icon"><i class="fa-solid fa-lock"></i></div>
       <h2 class="fj-title">Premium Tools Locked! 🔒</h2>
       <p class="fj-subtext">Join our official Telegram channels to unlock all premium editing tools for free. Your status is verified automatically.</p>
       
@@ -27,215 +28,416 @@
       
       <!-- Verification status indicator -->
       <div class="fj-status" id="fj-status">
-        <i class="fa-solid fa-spinner fa-spin"></i> <span>⏳ Checking membership...</span>
+        <i class="fa-solid fa-circle-notch fa-spin"></i> <span>Checking membership...</span>
       </div>
     </div>
   </div>
 
-  <div class="ps-app">
-    <!-- Top Bar -->
-    <header class="ps-header">
-      <div class="ps-brand">
-        <div class="ps-logo">Ps</div>
-        <span class="ps-app-title">EditMedia <span class="ps-accent">Pro</span></span>
-      </div>
-      <div class="ps-user" id="user-badge">
-        <div class="ps-avatar" id="user-avatar"><i class="fa-solid fa-user"></i></div>
-        <div class="ps-user-meta">
-          <span class="ps-username" id="user-name">Guest</span>
-          <span class="ps-credits"><i class="fa-solid fa-coins"></i> <span id="credit-count">--</span></span>
+  <!-- Main Application Wrapper -->
+  <div class="app-container">
+    <!-- Top Global Header -->
+    <header class="app-header">
+      <div class="header-brand">
+        <div class="brand-logo">Ps</div>
+        <div class="brand-text">
+          <span class="brand-name">EditMedia</span>
+          <span class="brand-badge">PRO</span>
         </div>
+      </div>
+      <div class="header-credits-pill" id="header-credits-pill">
+        <i class="fa-solid fa-coins"></i>
+        <span id="nav-credit-count">10</span>
+        <span class="credits-label">Credits</span>
       </div>
     </header>
 
-    <!-- App Body (Toolbar + Canvas + Inspector Panel) -->
-    <div class="ps-workspace">
-      <!-- Left Tool Dock -->
-      <aside class="ps-toolbar" role="toolbar" aria-label="Toolbox">
-        <button class="ps-tool-btn active" data-tool="select" title="Selection & Info">
-          <i class="fa-solid fa-arrow-pointer"></i>
-          <span>Select</span>
-        </button>
-        <button class="ps-tool-btn" data-tool="cloud" title="Upload to Cloud (ImgBB)">
-          <i class="fa-solid fa-cloud-arrow-up"></i>
-          <span>Cloud</span>
-        </button>
-        <button class="ps-tool-btn" data-tool="resize" title="Resize Image">
-          <i class="fa-solid fa-up-right-and-down-left-from-center"></i>
-          <span>Resize</span>
-        </button>
-        <button class="ps-tool-btn" data-tool="compress" title="Compress Image">
-          <i class="fa-solid fa-file-zipper"></i>
-          <span>Compress</span>
-        </button>
-        <button class="ps-tool-btn" data-tool="convert" title="Format Converter">
-          <i class="fa-solid fa-scissors"></i>
-          <span>Convert</span>
-        </button>
-        <button class="ps-tool-btn" data-tool="pdf" title="Convert to PDF">
-          <i class="fa-solid fa-file-pdf"></i>
-          <span>PDF</span>
-        </button>
-      </aside>
+    <!-- Main Scrollable Content Viewport -->
+    <main class="pages-viewport">
 
-      <!-- Center Stage: Main Canvas Area -->
-      <main class="ps-canvas-stage">
-        <!-- Canvas Status / Properties Bar -->
-        <div class="ps-canvas-infobar" id="file-infobar" style="display: none;">
-          <span id="info-name"><i class="fa-regular fa-image"></i> image.png</span>
-          <span class="ps-divider">|</span>
-          <span id="info-res">0x0 px</span>
-          <span class="ps-divider">|</span>
-          <span id="info-size">0 KB</span>
-          <button class="ps-btn-icon-danger" id="btn-remove-file" title="Remove image">
-            <i class="fa-solid fa-trash-can"></i>
+      <!-- ================= PAGE 1: HOME ================= -->
+      <section class="app-page active" id="page-home">
+        
+        <!-- Section 1: Welcome Greeting Card -->
+        <div class="ui-card welcome-card">
+          <div class="welcome-badge">
+            <span class="pulse-dot"></span> Studio Ready
+          </div>
+          <h1 class="welcome-heading">Welcome, <span id="welcome-user-name" class="gradient-text">Creator</span>! 👋</h1>
+          <p class="welcome-desc">Your ultimate all-in-one media workstation on Telegram. Process images, compress assets, and host graphics on high-speed CDN.</p>
+          <div class="welcome-features-row">
+            <div class="feature-tag"><i class="fa-solid fa-bolt"></i> Lossless Engine</div>
+            <div class="feature-tag"><i class="fa-solid fa-cloud"></i> Instant CDN</div>
+            <div class="feature-tag"><i class="fa-solid fa-shield-halved"></i> 100% Secure</div>
+          </div>
+        </div>
+
+        <!-- Section 2: User Info Card -->
+        <div class="ui-card user-card">
+          <div class="card-header-row">
+            <div class="user-meta-group">
+              <div class="user-avatar-wrap" id="user-avatar-wrap">
+                <i class="fa-solid fa-user"></i>
+              </div>
+              <div class="user-id-details">
+                <h3 class="user-display-name" id="user-full-name">Guest User</h3>
+                <span class="user-handle" id="user-username">@username</span>
+              </div>
+            </div>
+            <div class="tg-id-badge">
+              <span class="id-label">ID</span>
+              <code id="user-telegram-id">000000000</code>
+            </div>
+          </div>
+
+          <div class="user-stats-grid">
+            <div class="stat-pill credits-pill">
+              <div class="stat-icon"><i class="fa-solid fa-coins"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Available Credits</span>
+                <span class="stat-value" id="card-credit-count">10</span>
+              </div>
+            </div>
+            <div class="stat-pill referrals-pill">
+              <div class="stat-icon"><i class="fa-solid fa-users"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Total Referrals</span>
+                <span class="stat-value" id="card-referral-count">0</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="credit-warning-banner">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <span>⚠️ 1 Credit will be deducted per edit/action.</span>
+          </div>
+        </div>
+
+        <!-- Section 3: Image Info & Metadata Inspector -->
+        <div class="ui-card inspector-card">
+          <div class="card-title-group">
+            <div class="card-title-icon"><i class="fa-solid fa-circle-info"></i></div>
+            <div>
+              <h3 class="card-title">Image Metadata Inspector</h3>
+              <p class="card-subtitle">Select any image to instantly read its technical metadata</p>
+            </div>
+          </div>
+
+          <div class="inspector-dropzone" id="inspector-dropzone">
+            <input type="file" id="inspector-file-input" accept="image/*" hidden />
+            <div class="dropzone-content" id="inspector-drop-prompt">
+              <div class="dropzone-icon-circle">
+                <i class="fa-solid fa-file-image"></i>
+              </div>
+              <p class="dropzone-text">Tap to select or drop an image</p>
+              <span class="dropzone-hint">Supports PNG, JPG, WEBP, GIF, SVG</span>
+            </div>
+
+            <!-- Inspector Result View -->
+            <div class="inspector-result-view" id="inspector-result-view" style="display: none;">
+              <div class="inspector-preview-box">
+                <img id="inspector-preview-img" src="" alt="Metadata Preview" />
+              </div>
+              <div class="metadata-specs-table">
+                <div class="spec-row">
+                  <span class="spec-label"><i class="fa-regular fa-file"></i> File Name</span>
+                  <span class="spec-val truncate" id="meta-name">--</span>
+                </div>
+                <div class="spec-row">
+                  <span class="spec-label"><i class="fa-solid fa-weight-scale"></i> File Size</span>
+                  <span class="spec-val" id="meta-size">--</span>
+                </div>
+                <div class="spec-row">
+                  <span class="spec-label"><i class="fa-solid fa-expand"></i> Dimensions</span>
+                  <span class="spec-val font-mono" id="meta-dims">--</span>
+                </div>
+                <div class="spec-row">
+                  <span class="spec-label"><i class="fa-solid fa-tag"></i> Format Type</span>
+                  <span class="spec-val badge-format" id="meta-format">--</span>
+                </div>
+                <div class="spec-row">
+                  <span class="spec-label"><i class="fa-solid fa-ratio"></i> Aspect Ratio</span>
+                  <span class="spec-val font-mono" id="meta-aspect">--</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <button type="button" class="btn-clear-inspector" id="btn-clear-inspector" style="display: none;">
+            <i class="fa-solid fa-rotate-left"></i> Inspect Another Image
           </button>
         </div>
 
-        <!-- Dropzone / Canvas Container -->
-        <div class="ps-dropzone" id="dropzone">
-          <input type="file" id="file-input" accept="image/png, image/jpeg, image/webp" hidden />
-          
-          <div class="ps-dropzone-prompt" id="dropzone-prompt">
-            <div class="ps-drop-icon">
-              <i class="fa-solid fa-cloud-arrow-up"></i>
-            </div>
-            <h3>Drag & Drop media here</h3>
-            <p>PNG, JPG, or WEBP (Max 20MB)</p>
-            <button type="button" class="ps-btn ps-btn-primary" id="btn-browse">
-              <i class="fa-solid fa-folder-open"></i> Browse Files
-            </button>
-          </div>
+      </section>
 
-          <div class="ps-preview-wrapper" id="preview-wrapper" style="display: none;">
-            <img id="preview-image" src="" alt="Active Canvas Layer" />
-          </div>
-
-          <!-- Spinner overlay for async tasks -->
-          <div class="ps-loader-overlay" id="loader-overlay" style="display: none;">
-            <div class="ps-spinner"></div>
-            <p id="loader-text">Processing image layers...</p>
-          </div>
-        </div>
-
-        <!-- Result / Output Notification Strip -->
-        <div class="ps-output-drawer" id="output-drawer" style="display: none;">
-          <div class="ps-output-info">
-            <i class="fa-solid fa-circle-check ps-success-icon"></i>
-            <div class="ps-output-text">
-              <h4 id="output-title">Action Completed!</h4>
-              <p id="output-desc">Your processed asset is ready.</p>
+      <!-- ================= PAGE 2: CLOUD (IMGBB / IMGHIPPO) ================= -->
+      <section class="app-page" id="page-cloud">
+        <div class="ui-card tool-main-card">
+          <div class="tool-header">
+            <div class="tool-icon-badge cloud-glow"><i class="fa-solid fa-cloud-arrow-up"></i></div>
+            <div>
+              <h2 class="tool-title">Cloud CDN Generator</h2>
+              <p class="tool-desc">Upload your photo to generate a high-speed, direct public URL link.</p>
             </div>
           </div>
-          <div class="ps-output-actions">
-            <a href="#" target="_blank" class="ps-btn ps-btn-accent" id="btn-result-link" style="display: none;">
-              <i class="fa-solid fa-arrow-up-right-from-square"></i> Open
-            </a>
-            <button class="ps-btn ps-btn-secondary" id="btn-copy-link" style="display: none;">
-              <i class="fa-regular fa-copy"></i> Copy
-            </button>
-            <a href="#" download="edited-media" class="ps-btn ps-btn-primary" id="btn-download" style="display: none;">
-              <i class="fa-solid fa-download"></i> Save
-            </a>
-          </div>
-        </div>
-      </main>
 
-      <!-- Right/Bottom Options Inspector -->
-      <aside class="ps-options-panel" id="options-panel">
-        <div class="ps-panel-header">
-          <span id="panel-title">Tool Options</span>
-        </div>
-
-        <!-- Panel Form for Tool Configurations -->
-        <div class="ps-panel-content">
-          <!-- Selection Mode Info -->
-          <div class="ps-tool-options" id="opt-select">
-            <p class="ps-muted">Select an operation from the toolbar on the left to configure adjustments.</p>
-          </div>
-
-          <!-- Cloud Upload Panel -->
-          <div class="ps-tool-options" id="opt-cloud" style="display: none;">
-            <label class="ps-label">Cloud Destination</label>
-            <p class="ps-muted">Instant, permanent CDN image hosting powered by ImgBB.</p>
-            <button class="ps-btn ps-btn-accent w-100" id="btn-exec-cloud">
-              <i class="fa-solid fa-bolt"></i> Upload to ImgBB
-            </button>
-          </div>
-
-          <!-- Resize Panel -->
-          <div class="ps-tool-options" id="opt-resize" style="display: none;">
-            <label class="ps-label">Presets</label>
-            <div class="ps-btn-grid">
-              <button type="button" class="ps-btn-sm" data-res="1080x1080">1:1 Square</button>
-              <button type="button" class="ps-btn-sm" data-res="1280x720">720p HD</button>
-              <button type="button" class="ps-btn-sm" data-res="1920x1080">1080p FHD</button>
-              <button type="button" class="ps-btn-sm" data-res="3840x2160">4K UHD</button>
+          <!-- Tool Upload Box -->
+          <div class="tool-upload-box" id="cloud-upload-box">
+            <input type="file" id="cloud-file-input" accept="image/*" hidden />
+            <div class="upload-placeholder" id="cloud-placeholder">
+              <i class="fa-solid fa-arrow-up-from-bracket"></i>
+              <span>Select an image to upload</span>
             </div>
+            <div class="tool-image-preview-wrapper" id="cloud-preview-wrapper" style="display: none;">
+              <img id="cloud-preview-img" src="" alt="Cloud Asset Preview" />
+              <button class="btn-remove-selected" id="btn-cloud-remove"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+          </div>
 
-            <div class="ps-grid-2">
-              <div class="ps-input-field">
-                <label>Width (px)</label>
-                <input type="number" id="resize-w" min="1" max="10000" placeholder="1920" />
+          <!-- Action Button -->
+          <button class="btn-action-prominent btn-cloud" id="btn-generate-link">
+            <i class="fa-solid fa-link"></i>
+            <span>Generate Link</span>
+          </button>
+
+          <!-- Result Container -->
+          <div class="tool-result-container" id="cloud-result-container" style="display: none;">
+            <div class="result-header">
+              <i class="fa-solid fa-circle-check text-success"></i>
+              <span>Direct Link Generated Successfully!</span>
+            </div>
+            <div class="link-output-group">
+              <input type="text" id="cloud-output-url" readonly />
+              <button class="btn-copy-action" id="btn-cloud-copy" title="Copy to clipboard">
+                <i class="fa-regular fa-copy"></i> Copy
+              </button>
+            </div>
+            <div class="result-quick-actions">
+              <a href="#" target="_blank" class="btn-sub-action" id="btn-cloud-open">
+                <i class="fa-solid fa-arrow-up-right-from-square"></i> Open in Browser
+              </a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= PAGE 3: EDIT (RESIZE / COMPRESS / CONVERT) ================= -->
+      <section class="app-page" id="page-edit">
+        <div class="ui-card tool-main-card">
+          <div class="tool-header">
+            <div class="tool-icon-badge edit-glow"><i class="fa-solid fa-wand-magic-sparkles"></i></div>
+            <div>
+              <h2 class="tool-title">Smart Image Editor</h2>
+              <p class="tool-desc">Compress size, resize resolution, or convert format with zero quality loss.</p>
+            </div>
+          </div>
+
+          <!-- Tool Upload Box -->
+          <div class="tool-upload-box" id="edit-upload-box">
+            <input type="file" id="edit-file-input" accept="image/*" hidden />
+            <div class="upload-placeholder" id="edit-placeholder">
+              <i class="fa-solid fa-image"></i>
+              <span>Choose image to edit</span>
+            </div>
+            <div class="tool-image-preview-wrapper" id="edit-preview-wrapper" style="display: none;">
+              <img id="edit-preview-img" src="" alt="Editor Asset Preview" />
+              <button class="btn-remove-selected" id="btn-edit-remove"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+          </div>
+
+          <!-- Sub Tool Tabs -->
+          <div class="editor-subtabs">
+            <button class="subtab-btn active" data-subtab="compress">Compress</button>
+            <button class="subtab-btn" data-subtab="resize">Resize</button>
+            <button class="subtab-btn" data-subtab="convert">Convert</button>
+          </div>
+
+          <!-- Subtab Panels -->
+          <!-- 1. Compress Panel -->
+          <div class="subtab-panel active" id="panel-compress">
+            <div class="control-group">
+              <div class="slider-header">
+                <label>Quality Compression</label>
+                <span class="value-highlight font-mono" id="compress-val-display">75%</span>
               </div>
-              <div class="ps-input-field">
-                <label>Height (px)</label>
-                <input type="number" id="resize-h" min="1" max="10000" placeholder="1080" />
+              <input type="range" class="ui-slider" id="compress-quality-slider" min="10" max="95" value="75" />
+              <div class="preset-pills-row">
+                <button type="button" class="preset-pill" data-preset="85">Light (85%)</button>
+                <button type="button" class="preset-pill active" data-preset="75">Balanced (75%)</button>
+                <button type="button" class="preset-pill" data-preset="50">Aggressive (50%)</button>
               </div>
             </div>
-
-            <label class="ps-checkbox-label">
-              <input type="checkbox" id="resize-aspect" checked />
-              <span>Lock Aspect Ratio</span>
-            </label>
-
-            <button class="ps-btn ps-btn-accent w-100 mt-2" id="btn-exec-resize">
-              Apply Resizing
-            </button>
           </div>
 
-          <!-- Compress Panel -->
-          <div class="ps-tool-options" id="opt-compress" style="display: none;">
-            <label class="ps-label" for="compress-quality">Quality Compression: <span id="quality-val" class="ps-accent">80%</span></label>
-            <input type="range" id="compress-quality" min="10" max="100" value="80" class="ps-slider" />
+          <!-- 2. Resize Panel -->
+          <div class="subtab-panel" id="panel-resize">
+            <div class="control-group">
+              <div class="dimension-inputs-grid">
+                <div class="input-item">
+                  <label>Width (px)</label>
+                  <input type="number" id="resize-input-w" placeholder="1920" />
+                </div>
+                <div class="input-item">
+                  <label>Height (px)</label>
+                  <input type="number" id="resize-input-h" placeholder="1080" />
+                </div>
+              </div>
+              <label class="ui-checkbox-label">
+                <input type="checkbox" id="resize-ratio-lock" checked />
+                <span>Lock Aspect Ratio</span>
+              </label>
+              <div class="preset-pills-row mt-2">
+                <button type="button" class="preset-pill" data-res="1080x1080">1:1 Square</button>
+                <button type="button" class="preset-pill" data-res="1280x720">720p HD</button>
+                <button type="button" class="preset-pill" data-res="1920x1080">1080p FHD</button>
+              </div>
+            </div>
+          </div>
 
-            <div class="ps-btn-grid mt-2">
-              <button type="button" class="ps-btn-sm" data-qual="80">Light (80%)</button>
-              <button type="button" class="ps-btn-sm" data-qual="50">Balanced (50%)</button>
-              <button type="button" class="ps-btn-sm" data-qual="20">Aggressive (20%)</button>
+          <!-- 3. Convert Panel -->
+          <div class="subtab-panel" id="panel-convert">
+            <div class="control-group">
+              <label class="control-label">Target File Format</label>
+              <div class="format-selector-grid">
+                <label class="format-radio">
+                  <input type="radio" name="target-format" value="png" checked />
+                  <span>PNG</span>
+                </label>
+                <label class="format-radio">
+                  <input type="radio" name="target-format" value="jpeg" />
+                  <span>JPG</span>
+                </label>
+                <label class="format-radio">
+                  <input type="radio" name="target-format" value="webp" />
+                  <span>WEBP</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Button -->
+          <button class="btn-action-prominent btn-edit" id="btn-process-image">
+            <i class="fa-solid fa-wand-magic-sparkles"></i>
+            <span>Process Image</span>
+          </button>
+
+          <!-- Result Container with Before vs After -->
+          <div class="tool-result-container" id="edit-result-container" style="display: none;">
+            <div class="result-header">
+              <i class="fa-solid fa-circle-check text-success"></i>
+              <span>Image Processing Completed!</span>
             </div>
 
-            <button class="ps-btn ps-btn-accent w-100 mt-3" id="btn-exec-compress">
-              Apply Compression
-            </button>
-          </div>
+            <!-- Before vs After Metrics Grid -->
+            <div class="before-after-card">
+              <div class="ba-col">
+                <span class="ba-label">Before</span>
+                <span class="ba-value" id="ba-before-size">0 KB</span>
+              </div>
+              <div class="ba-divider"><i class="fa-solid fa-arrow-right"></i></div>
+              <div class="ba-col">
+                <span class="ba-label">After</span>
+                <span class="ba-value highlight" id="ba-after-size">0 KB</span>
+              </div>
+              <div class="ba-badge" id="ba-saved-badge">Saved 0%</div>
+            </div>
 
-          <!-- Format Converter Panel -->
-          <div class="ps-tool-options" id="opt-convert" style="display: none;">
-            <label class="ps-label" for="convert-format">Target Format</label>
-            <select id="convert-format" class="ps-select">
-              <option value="png">PNG (Portable Network Graphics)</option>
-              <option value="jpeg">JPG / JPEG (Standard Image)</option>
-              <option value="webp">WEBP (High Efficiency Web)</option>
-            </select>
-            <button class="ps-btn ps-btn-accent w-100 mt-3" id="btn-exec-convert">
-              Execute Conversion
-            </button>
-          </div>
-
-          <!-- PDF Panel -->
-          <div class="ps-tool-options" id="opt-pdf" style="display: none;">
-            <label class="ps-label">Document Settings</label>
-            <p class="ps-muted">Converts this active layer into a printable, flattened PDF file.</p>
-            <button class="ps-btn ps-btn-accent w-100 mt-2" id="btn-exec-pdf">
-              <i class="fa-solid fa-file-pdf"></i> Generate PDF
-            </button>
+            <a href="#" download="edited-media" class="btn-download-action" id="btn-download-processed">
+              <i class="fa-solid fa-download"></i> Download Processed File
+            </a>
           </div>
         </div>
-      </aside>
+      </section>
+
+      <!-- ================= PAGE 4: PDF CREATOR ================= -->
+      <section class="app-page" id="page-pdf">
+        <div class="ui-card tool-main-card">
+          <div class="tool-header">
+            <div class="tool-icon-badge pdf-glow"><i class="fa-solid fa-file-pdf"></i></div>
+            <div>
+              <h2 class="tool-title">Image to PDF Converter</h2>
+              <p class="tool-desc">Turn high-resolution photos into flattened, printable PDF documents.</p>
+            </div>
+          </div>
+
+          <!-- Tool Upload Box -->
+          <div class="tool-upload-box" id="pdf-upload-box">
+            <input type="file" id="pdf-file-input" accept="image/*" hidden />
+            <div class="upload-placeholder" id="pdf-placeholder">
+              <i class="fa-solid fa-file-arrow-up"></i>
+              <span>Select photo for PDF conversion</span>
+            </div>
+            <div class="tool-image-preview-wrapper" id="pdf-preview-wrapper" style="display: none;">
+              <img id="pdf-preview-img" src="" alt="PDF Document Source" />
+              <button class="btn-remove-selected" id="btn-pdf-remove"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+          </div>
+
+          <div class="pdf-info-box">
+            <i class="fa-solid fa-circle-info"></i>
+            <span>The document will be rendered at 100% native resolution in standard A4 document layout.</span>
+          </div>
+
+          <!-- Action Button -->
+          <button class="btn-action-prominent btn-pdf" id="btn-create-pdf">
+            <i class="fa-solid fa-file-pdf"></i>
+            <span>Create PDF</span>
+          </button>
+
+          <!-- Result Container -->
+          <div class="tool-result-container" id="pdf-result-container" style="display: none;">
+            <div class="result-header">
+              <i class="fa-solid fa-circle-check text-success"></i>
+              <span>PDF Document Ready!</span>
+            </div>
+            <div class="pdf-ready-card">
+              <div class="pdf-ready-icon"><i class="fa-solid fa-file-pdf"></i></div>
+              <div class="pdf-ready-details">
+                <span class="pdf-doc-name" id="pdf-output-name">document.pdf</span>
+                <span class="pdf-doc-size" id="pdf-output-size">--</span>
+              </div>
+            </div>
+            <a href="#" download="document.pdf" class="btn-download-action" id="btn-download-pdf">
+              <i class="fa-solid fa-download"></i> Download PDF Document
+            </a>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Floating Pill-Shaped Bottom Navigation Bar -->
+    <nav class="bottom-nav-dock">
+      <div class="nav-pill-wrapper">
+        <button class="nav-tab-item active" data-tab="home">
+          <div class="tab-icon"><i class="fa-solid fa-house"></i></div>
+          <span class="tab-label">Home</span>
+        </button>
+        <button class="nav-tab-item" data-tab="cloud">
+          <div class="tab-icon"><i class="fa-solid fa-cloud-arrow-up"></i></div>
+          <span class="tab-label">Cloud</span>
+        </button>
+        <button class="nav-tab-item" data-tab="edit">
+          <div class="tab-icon"><i class="fa-solid fa-wand-magic-sparkles"></i></div>
+          <span class="tab-label">Edit</span>
+        </button>
+        <button class="nav-tab-item" data-tab="pdf">
+          <div class="tab-icon"><i class="fa-solid fa-file-pdf"></i></div>
+          <span class="tab-label">PDF</span>
+        </button>
+      </div>
+    </nav>
+
+    <!-- Global Spinner Modal for Async API Operations -->
+    <div class="async-loader-overlay" id="async-loader" style="display: none;">
+      <div class="spinner-box">
+        <div class="neon-spinner"></div>
+        <p class="loader-message" id="loader-status-msg">Processing asset...</p>
+      </div>
     </div>
+
   </div>
 
+  <!-- App Script -->
   <script src="/static/script.js"></script>
 </body>
 </html>
