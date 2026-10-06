@@ -2,10 +2,15 @@ import os
 import io
 import subprocess
 import requests
+import telebot
 from PIL import Image
 from flask import Flask, render_template, request, jsonify, send_file
 
 app = Flask(__name__)
+
+# Initialize a Telebot client for Flask API calls
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+bot_api = telebot.TeleBot(BOT_TOKEN) if BOT_TOKEN else None
 
 # ==========================================
 # ১. FLASK WEB APP & BACKEND APIS
@@ -22,6 +27,44 @@ def view_log():
         return f"<h1>Bot CCTV Logs:</h1><pre style='font-size: 15px; color: green;'>{logs}</pre>"
     except Exception as e:
         return f"Log file error: {e}"
+
+# Force Join Channel Membership Verification API
+@app.route('/api/check_membership', methods=['POST'])
+def check_membership():
+    try:
+        data = request.get_json(silent=True) or request.form or {}
+        user_id = data.get('user_id')
+
+        raw_channels = os.environ.get('REQUIRED_CHANNELS', '@yourchannel1')
+        channels = [c.strip() for c in raw_channels.split(',') if c.strip()]
+
+        if not channels or not user_id or not bot_api:
+            return jsonify({"channels": [], "unjoined": []})
+
+        unjoined = []
+        for ch in channels:
+            try:
+                member = bot_api.get_chat_member(ch, int(user_id))
+                # Allowed active statuses: creator, administrator, member, restricted
+                if member.status not in ['creator', 'administrator', 'member', 'restricted']:
+                    clean_ch = ch.replace('@', '').strip()
+                    unjoined.append({
+                        "id": ch,
+                        "name": ch,
+                        "url": f"https://t.me/{clean_ch}"
+                    })
+            except Exception:
+                # If error occurs (user not in channel, etc.), consider unjoined
+                clean_ch = ch.replace('@', '').strip()
+                unjoined.append({
+                    "id": ch,
+                    "name": ch,
+                    "url": f"https://t.me/{clean_ch}"
+                })
+
+        return jsonify({"channels": unjoined, "unjoined": unjoined})
+    except Exception as e:
+        return jsonify({"error": str(e), "channels": [], "unjoined": []}), 500
 
 # 1. API: Image Upload to ImgBB
 @app.route('/api/upload', methods=['POST'])
