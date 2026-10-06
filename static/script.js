@@ -21,7 +21,117 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // Application State
+  // ==========================================
+  // FORCE JOIN MEMBERSHIP VERIFICATION SYSTEM
+  // ==========================================
+  const modal = document.getElementById("force-join-modal");
+  const channelsContainer = document.getElementById("fj-channels-container");
+  const statusEl = document.getElementById("fj-status");
+  const userId = tg?.initDataUnsafe?.user?.id;
+
+  let pollInterval = null;
+  let isChecking = false;
+  let isVerified = false;
+
+  async function checkMembership() {
+    if (isChecking || isVerified || !userId) return;
+    isChecking = true;
+
+    try {
+      const response = await fetch("/api/check_membership", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId })
+      });
+
+      const data = await response.json();
+      const unjoined = data.channels || data.unjoined || [];
+
+      if (unjoined.length === 0) {
+        // All channels joined successfully
+        isVerified = true;
+        if (pollInterval) clearInterval(pollInterval);
+
+        // Update status text and style
+        statusEl.innerHTML = `<span>✅ Access Granted!</span>`;
+        statusEl.classList.add("success");
+        channelsContainer.innerHTML = "";
+
+        if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+
+        // Wait 1 second, then fade out and remove overlay
+        setTimeout(() => {
+          modal.classList.add("fade-out");
+          setTimeout(() => {
+            modal.style.display = "none";
+          }, 400);
+        }, 1000);
+      } else {
+        // Keep popup visible and update channel buttons dynamically
+        modal.style.display = "flex";
+        statusEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>⏳ Checking membership...</span>`;
+        statusEl.classList.remove("success");
+
+        const unjoinedIds = new Set(unjoined.map((ch) => ch.id));
+
+        // 1. Remove buttons for channels that the user has already joined
+        const currentButtons = channelsContainer.querySelectorAll(".fj-btn");
+        currentButtons.forEach((btn) => {
+          const btnId = btn.dataset.channelId;
+          if (!unjoinedIds.has(btnId)) {
+            btn.remove();
+          }
+        });
+
+        // 2. Add buttons for channels that still need to be joined
+        unjoined.forEach((ch) => {
+          let btn = channelsContainer.querySelector(`[data-channel-id="${ch.id}"]`);
+          if (!btn) {
+            btn = document.createElement("a");
+            btn.href = ch.url;
+            btn.className = "fj-btn";
+            btn.dataset.channelId = ch.id;
+            btn.innerHTML = `<i class="fa-brands fa-telegram"></i> Join ${ch.name}`;
+
+            btn.addEventListener("click", (e) => {
+              e.preventDefault();
+              if (tg?.openTelegramLink) {
+                tg.openTelegramLink(ch.url);
+              } else {
+                window.open(ch.url, "_blank");
+              }
+            });
+
+            channelsContainer.appendChild(btn);
+          }
+        });
+      }
+    } catch (err) {
+      console.error("Force join check error:", err);
+    } finally {
+      isChecking = false;
+    }
+  }
+
+  // Trigger verification only when a valid Telegram user is detected
+  if (userId) {
+    checkMembership();
+
+    // Re-verify immediately whenever the user switches back to the WebApp
+    window.addEventListener("focus", checkMembership);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        checkMembership();
+      }
+    });
+
+    // Check membership every 3 seconds while modal is active
+    pollInterval = setInterval(checkMembership, 3000);
+  }
+
+  // ==========================================
+  // APP LOGIC & TOOLS
+  // ==========================================
   const state = {
     file: null,
     previewUrl: null,
@@ -244,7 +354,6 @@ document.addEventListener("DOMContentLoaded", () => {
         throw new Error(errorData.error || `Server responded with ${response.status}`);
       }
 
-      // Check if response is JSON (like Cloud upload) or Binary Blob (image/pdf file)
       if (contentType.includes("application/json")) {
         const result = await response.json();
         showResultNotification("Upload Succeeded!", "Public link generated successfully.", {
