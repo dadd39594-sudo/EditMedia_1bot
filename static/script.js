@@ -1,5 +1,7 @@
 /**
- * EditMedia Pro - Telegram Mini App Engine
+ * ===================================================================
+ * EDITMEDIA PRO - TELEGRAM WEBAPP JAVASCRIPT ENGINE
+ * ===================================================================
  */
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -8,25 +10,64 @@ document.addEventListener("DOMContentLoaded", () => {
   if (tg) {
     tg.ready();
     tg.expand();
-    tg.setHeaderColor("#1E1E1E");
-    tg.setBackgroundColor("#121212");
+    try {
+      tg.setHeaderColor("#151821");
+      tg.setBackgroundColor("#0c0d12");
+    } catch (e) {}
+  }
 
-    // Load User Profile Data
-    const user = tg.initDataUnsafe?.user;
-    if (user) {
-      document.getElementById("user-name").textContent = user.first_name || "Creator";
-      if (user.photo_url) {
-        document.getElementById("user-avatar").innerHTML = `<img src="${user.photo_url}" style="width:100%;height:100%;border-radius:50%;" />`;
-      }
+  // Application Global State
+  const appState = {
+    user: {
+      name: "Guest Creator",
+      username: "@guest",
+      id: "000000000",
+      credits: 10,
+      referrals: 0
+    },
+    cloudFile: null,
+    editFile: null,
+    pdfFile: null,
+    editNaturalWidth: 0,
+    editNaturalHeight: 0,
+    editAspectRatio: 1,
+    activeEditSubtab: "compress"
+  };
+
+  // ===================================================================
+  // SECTION A: TELEGRAM USER INITIALIZATION & DATA BINDING
+  // ===================================================================
+  function initUserData() {
+    const tgUser = tg?.initDataUnsafe?.user;
+    if (tgUser) {
+      appState.user.name = tgUser.first_name + (tgUser.last_name ? " " + tgUser.last_name : "");
+      appState.user.username = tgUser.username ? `@${tgUser.username}` : "@user";
+      appState.user.id = String(tgUser.id);
+    }
+
+    // Bind to DOM Elements
+    document.getElementById("welcome-user-name").textContent = appState.user.name.split(" ")[0];
+    document.getElementById("user-full-name").textContent = appState.user.name;
+    document.getElementById("user-username").textContent = appState.user.username;
+    document.getElementById("user-telegram-id").textContent = appState.user.id;
+
+    document.getElementById("nav-credit-count").textContent = appState.user.credits;
+    document.getElementById("card-credit-count").textContent = appState.user.credits;
+    document.getElementById("card-referral-count").textContent = appState.user.referrals;
+
+    if (tgUser?.photo_url) {
+      document.getElementById("user-avatar-wrap").innerHTML = `<img src="${tgUser.photo_url}" alt="Avatar" />`;
     }
   }
 
-  // ==========================================
-  // FORCE JOIN MEMBERSHIP VERIFICATION SYSTEM
-  // ==========================================
-  const modal = document.getElementById("force-join-modal");
-  const channelsContainer = document.getElementById("fj-channels-container");
-  const statusEl = document.getElementById("fj-status");
+  initUserData();
+
+  // ===================================================================
+  // SECTION B: FORCE JOIN MEMBERSHIP VERIFICATION
+  // ===================================================================
+  const fjModal = document.getElementById("force-join-modal");
+  const fjContainer = document.getElementById("fj-channels-container");
+  const fjStatus = document.getElementById("fj-status");
   const userId = tg?.initDataUnsafe?.user?.id;
 
   let pollInterval = null;
@@ -48,46 +89,39 @@ document.addEventListener("DOMContentLoaded", () => {
       const unjoined = data.channels || data.unjoined || [];
 
       if (unjoined.length === 0) {
-        // All channels joined successfully
         isVerified = true;
         if (pollInterval) clearInterval(pollInterval);
 
-        // Update status text and style
-        statusEl.innerHTML = `<span>✅ Access Granted!</span>`;
-        statusEl.classList.add("success");
-        channelsContainer.innerHTML = "";
+        fjStatus.innerHTML = `<span>✅ Access Granted!</span>`;
+        fjStatus.classList.add("success");
+        fjContainer.innerHTML = "";
 
         if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
 
-        // Wait 1 second, then fade out and remove overlay
         setTimeout(() => {
-          modal.classList.add("fade-out");
+          fjModal.classList.add("fade-out");
           setTimeout(() => {
-            modal.style.display = "none";
+            fjModal.style.display = "none";
           }, 400);
         }, 1000);
       } else {
-        // Keep popup visible and update channel buttons dynamically
-        modal.style.display = "flex";
-        statusEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>⏳ Checking membership...</span>`;
-        statusEl.classList.remove("success");
+        fjModal.style.display = "flex";
+        fjStatus.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> <span>Checking membership...</span>`;
+        fjStatus.classList.remove("success");
 
         const unjoinedIds = new Set(unjoined.map((ch) => ch.id));
 
-        // 1. Remove buttons for channels that the user has already joined
-        const currentButtons = channelsContainer.querySelectorAll(".fj-btn");
-        currentButtons.forEach((btn) => {
-          const btnId = btn.dataset.channelId;
-          if (!unjoinedIds.has(btnId)) {
+        // Remove joined buttons
+        fjContainer.querySelectorAll(".fj-btn").forEach((btn) => {
+          if (!unjoinedIds.has(btn.dataset.channelId)) {
             btn.remove();
           }
         });
 
-        // 2. Add buttons for channels that still need to be joined
+        // Add remaining unjoined buttons
         unjoined.forEach((ch) => {
-          let btn = channelsContainer.querySelector(`[data-channel-id="${ch.id}"]`);
-          if (!btn) {
-            btn = document.createElement("a");
+          if (!fjContainer.querySelector(`[data-channel-id="${ch.id}"]`)) {
+            const btn = document.createElement("a");
             btn.href = ch.url;
             btn.className = "fj-btn";
             btn.dataset.channelId = ch.id;
@@ -101,181 +135,304 @@ document.addEventListener("DOMContentLoaded", () => {
                 window.open(ch.url, "_blank");
               }
             });
-
-            channelsContainer.appendChild(btn);
+            fjContainer.appendChild(btn);
           }
         });
       }
     } catch (err) {
-      console.error("Force join check error:", err);
+      console.error("Force join verification error:", err);
     } finally {
       isChecking = false;
     }
   }
 
-  // Trigger verification only when a valid Telegram user is detected
   if (userId) {
     checkMembership();
-
-    // Re-verify immediately whenever the user switches back to the WebApp
     window.addEventListener("focus", checkMembership);
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") {
-        checkMembership();
-      }
+      if (document.visibilityState === "visible") checkMembership();
     });
-
-    // Check membership every 3 seconds while modal is active
     pollInterval = setInterval(checkMembership, 3000);
   }
 
-  // ==========================================
-  // APP LOGIC & TOOLS
-  // ==========================================
-  const state = {
-    file: null,
-    previewUrl: null,
-    naturalWidth: 0,
-    naturalHeight: 0,
-    activeTool: "select",
-    aspectRatio: 1
+  // ===================================================================
+  // SECTION C: BOTTOM NAVIGATION SWITCHER
+  // ===================================================================
+  const navTabs = document.querySelectorAll(".nav-tab-item");
+  const pages = {
+    home: document.getElementById("page-home"),
+    cloud: document.getElementById("page-cloud"),
+    edit: document.getElementById("page-edit"),
+    pdf: document.getElementById("page-pdf")
   };
 
-  // DOM Elements Cache
-  const dropzone = document.getElementById("dropzone");
-  const fileInput = document.getElementById("file-input");
-  const btnBrowse = document.getElementById("btn-browse");
-  const dropzonePrompt = document.getElementById("dropzone-prompt");
-  const previewWrapper = document.getElementById("preview-wrapper");
-  const previewImage = document.getElementById("preview-image");
-  const fileInfobar = document.getElementById("file-infobar");
-  const btnRemoveFile = document.getElementById("btn-remove-file");
+  navTabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      const targetPage = tab.dataset.tab;
+      navTabs.forEach((t) => t.classList.remove("active"));
+      tab.classList.add("active");
 
-  const loaderOverlay = document.getElementById("loader-overlay");
-  const loaderText = document.getElementById("loader-text");
-  const outputDrawer = document.getElementById("output-drawer");
-  const outputTitle = document.getElementById("output-title");
-  const outputDesc = document.getElementById("output-desc");
-  const btnResultLink = document.getElementById("btn-result-link");
-  const btnCopyLink = document.getElementById("btn-copy-link");
-  const btnDownload = document.getElementById("btn-download");
+      Object.keys(pages).forEach((k) => pages[k].classList.remove("active"));
+      if (pages[targetPage]) {
+        pages[targetPage].classList.add("active");
+        document.querySelector(".pages-viewport").scrollTop = 0;
+      }
 
-  // Inputs
-  const resizeW = document.getElementById("resize-w");
-  const resizeH = document.getElementById("resize-h");
-  const resizeAspect = document.getElementById("resize-aspect");
-  const compressQuality = document.getElementById("compress-quality");
-  const qualityVal = document.getElementById("quality-val");
-  const convertFormat = document.getElementById("convert-format");
-
-  // Tool buttons & Panels
-  const toolBtns = document.querySelectorAll(".ps-tool-btn");
-  const panels = {
-    select: document.getElementById("opt-select"),
-    cloud: document.getElementById("opt-cloud"),
-    resize: document.getElementById("opt-resize"),
-    compress: document.getElementById("opt-compress"),
-    convert: document.getElementById("opt-convert"),
-    pdf: document.getElementById("opt-pdf")
-  };
-
-  // 2. Drag & Drop and File Selection Handlers
-  btnBrowse.addEventListener("click", () => fileInput.click());
-
-  fileInput.addEventListener("change", (e) => {
-    if (e.target.files.length) handleFile(e.target.files[0]);
-  });
-
-  dropzone.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    dropzone.classList.add("drag-over");
-  });
-
-  dropzone.addEventListener("dragleave", () => dropzone.classList.remove("drag-over"));
-
-  dropzone.addEventListener("drop", (e) => {
-    e.preventDefault();
-    dropzone.classList.remove("drag-over");
-    if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
-  });
-
-  btnRemoveFile.addEventListener("click", resetCanvas);
-
-  function handleFile(file) {
-    if (!file.type.startsWith("image/")) {
-      alertTelegram("Only images (PNG, JPG, WEBP) are supported!");
-      return;
-    }
-
-    state.file = file;
-    state.previewUrl = URL.createObjectURL(file);
-
-    const img = new Image();
-    img.onload = () => {
-      state.naturalWidth = img.naturalWidth;
-      state.naturalHeight = img.naturalHeight;
-      state.aspectRatio = img.naturalWidth / img.naturalHeight;
-
-      // Update Form Defaults
-      resizeW.value = img.naturalWidth;
-      resizeH.value = img.naturalHeight;
-
-      // Update Infobar
-      document.getElementById("info-name").innerHTML = `<i class="fa-regular fa-image"></i> ${file.name}`;
-      document.getElementById("info-res").textContent = `${img.naturalWidth}x${img.naturalHeight} px`;
-      document.getElementById("info-size").textContent = formatBytes(file.size);
-
-      // Render Stage Preview
-      previewImage.src = state.previewUrl;
-      dropzonePrompt.style.display = "none";
-      previewWrapper.style.display = "flex";
-      fileInfobar.style.display = "flex";
-
-      // Haptic feedback on Telegram
-      if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
-    };
-    img.src = state.previewUrl;
-  }
-
-  function resetCanvas() {
-    state.file = null;
-    if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
-    state.previewUrl = null;
-    fileInput.value = "";
-
-    dropzonePrompt.style.display = "flex";
-    previewWrapper.style.display = "none";
-    fileInfobar.style.display = "none";
-    outputDrawer.style.display = "none";
-  }
-
-  // 3. Toolbar Switching Logic
-  toolBtns.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const tool = btn.dataset.tool;
-      toolBtns.forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-
-      // Switch panels
-      Object.keys(panels).forEach((k) => (panels[k].style.display = "none"));
-      if (panels[tool]) panels[tool].style.display = "block";
-      document.getElementById("panel-title").textContent = `${tool.toUpperCase()} OPTIONS`;
-
-      state.activeTool = tool;
       if (tg?.HapticFeedback) tg.HapticFeedback.selectionChanged();
     });
   });
 
-  // 4. Panel Input Synchronizers
+  // ===================================================================
+  // SECTION D: HOME PAGE - IMAGE METADATA INSPECTOR
+  // ===================================================================
+  const inspectorDropzone = document.getElementById("inspector-dropzone");
+  const inspectorFileInput = document.getElementById("inspector-file-input");
+  const inspectorDropPrompt = document.getElementById("inspector-drop-prompt");
+  const inspectorResultView = document.getElementById("inspector-result-view");
+  const inspectorPreviewImg = document.getElementById("inspector-preview-img");
+  const btnClearInspector = document.getElementById("btn-clear-inspector");
+
+  const metaName = document.getElementById("meta-name");
+  const metaSize = document.getElementById("meta-size");
+  const metaDims = document.getElementById("meta-dims");
+  const metaFormat = document.getElementById("meta-format");
+  const metaAspect = document.getElementById("meta-aspect");
+
+  inspectorDropzone.addEventListener("click", () => {
+    if (inspectorResultView.style.display === "none") {
+      inspectorFileInput.click();
+    }
+  });
+
+  inspectorFileInput.addEventListener("change", (e) => {
+    if (e.target.files.length) inspectImage(e.target.files[0]);
+  });
+
+  function inspectImage(file) {
+    if (!file.type.startsWith("image/")) {
+      showTgAlert("Please select a valid image file!");
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+
+    img.onload = () => {
+      metaName.textContent = file.name;
+      metaSize.textContent = formatBytes(file.size);
+      metaDims.textContent = `${img.naturalWidth} × ${img.naturalHeight} px`;
+      
+      const formatExt = file.type.split("/")[1] ? file.type.split("/")[1].toUpperCase() : "IMG";
+      metaFormat.textContent = formatExt;
+
+      // Calculate simplified Aspect Ratio
+      const gcdVal = gcd(img.naturalWidth, img.naturalHeight);
+      const aspectW = img.naturalWidth / gcdVal;
+      const aspectH = img.naturalHeight / gcdVal;
+      metaAspect.textContent = `${aspectW}:${aspectH} (${(img.naturalWidth / img.naturalHeight).toFixed(2)})`;
+
+      inspectorPreviewImg.src = objectUrl;
+      inspectorDropPrompt.style.display = "none";
+      inspectorResultView.style.display = "flex";
+      btnClearInspector.style.display = "flex";
+
+      if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+    };
+
+    img.src = objectUrl;
+  }
+
+  btnClearInspector.addEventListener("click", (e) => {
+    e.stopPropagation();
+    inspectorFileInput.value = "";
+    inspectorPreviewImg.src = "";
+    inspectorDropPrompt.style.display = "block";
+    inspectorResultView.style.display = "none";
+    btnClearInspector.style.display = "none";
+  });
+
+  // ===================================================================
+  // SECTION E: CLOUD PAGE LOGIC
+  // ===================================================================
+  const cloudUploadBox = document.getElementById("cloud-upload-box");
+  const cloudFileInput = document.getElementById("cloud-file-input");
+  const cloudPlaceholder = document.getElementById("cloud-placeholder");
+  const cloudPreviewWrapper = document.getElementById("cloud-preview-wrapper");
+  const cloudPreviewImg = document.getElementById("cloud-preview-img");
+  const btnCloudRemove = document.getElementById("btn-cloud-remove");
+  const btnGenerateLink = document.getElementById("btn-generate-link");
+  const cloudResultContainer = document.getElementById("cloud-result-container");
+  const cloudOutputUrl = document.getElementById("cloud-output-url");
+  const btnCloudCopy = document.getElementById("btn-cloud-copy");
+  const btnCloudOpen = document.getElementById("btn-cloud-open");
+
+  cloudUploadBox.addEventListener("click", () => {
+    if (!appState.cloudFile) cloudFileInput.click();
+  });
+
+  cloudFileInput.addEventListener("change", (e) => {
+    if (e.target.files.length) {
+      appState.cloudFile = e.target.files[0];
+      cloudPreviewImg.src = URL.createObjectURL(appState.cloudFile);
+      cloudPlaceholder.style.display = "none";
+      cloudPreviewWrapper.style.display = "flex";
+      cloudResultContainer.style.display = "none";
+    }
+  });
+
+  btnCloudRemove.addEventListener("click", (e) => {
+    e.stopPropagation();
+    appState.cloudFile = null;
+    cloudFileInput.value = "";
+    cloudPlaceholder.style.display = "flex";
+    cloudPreviewWrapper.style.display = "none";
+    cloudResultContainer.style.display = "none";
+  });
+
+  btnGenerateLink.addEventListener("click", async () => {
+    if (!appState.cloudFile) {
+      showTgAlert("Please select an image first!");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", appState.cloudFile);
+
+    showLoader(true, "Uploading asset to ImgBB CDN...");
+    try {
+      const response = await fetch("/api/upload", { method: "POST", body: formData });
+      const data = await response.json();
+
+      if (!response.ok) throw new Error(data.error || "Upload failed");
+
+      deductCredit();
+      cloudOutputUrl.value = data.url;
+      btnCloudOpen.href = data.url;
+      cloudResultContainer.style.display = "flex";
+
+      if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+    } catch (err) {
+      showTgAlert(`Error: ${err.message}`);
+    } finally {
+      showLoader(false);
+    }
+  });
+
+  btnCloudCopy.addEventListener("click", () => {
+    navigator.clipboard.writeText(cloudOutputUrl.value);
+    btnCloudCopy.innerHTML = `<i class="fa-solid fa-check"></i> Copied!`;
+    setTimeout(() => {
+      btnCloudCopy.innerHTML = `<i class="fa-regular fa-copy"></i> Copy`;
+    }, 1800);
+    if (tg?.HapticFeedback) tg.HapticFeedback.selectionChanged();
+  });
+
+  // ===================================================================
+  // SECTION F: EDIT STUDIO LOGIC
+  // ===================================================================
+  const editUploadBox = document.getElementById("edit-upload-box");
+  const editFileInput = document.getElementById("edit-file-input");
+  const editPlaceholder = document.getElementById("edit-placeholder");
+  const editPreviewWrapper = document.getElementById("edit-preview-wrapper");
+  const editPreviewImg = document.getElementById("edit-preview-img");
+  const btnEditRemove = document.getElementById("btn-edit-remove");
+  const btnProcessImage = document.getElementById("btn-process-image");
+  const editResultContainer = document.getElementById("edit-result-container");
+
+  const subtabBtns = document.querySelectorAll(".subtab-btn");
+  const subtabPanels = {
+    compress: document.getElementById("panel-compress"),
+    resize: document.getElementById("panel-resize"),
+    convert: document.getElementById("panel-convert")
+  };
+
+  const compressSlider = document.getElementById("compress-quality-slider");
+  const compressDisplay = document.getElementById("compress-val-display");
+  const resizeW = document.getElementById("resize-input-w");
+  const resizeH = document.getElementById("resize-input-h");
+  const resizeLock = document.getElementById("resize-ratio-lock");
+
+  // Before vs After display elements
+  const baBeforeSize = document.getElementById("ba-before-size");
+  const baAfterSize = document.getElementById("ba-after-size");
+  const baSavedBadge = document.getElementById("ba-saved-badge");
+  const btnDownloadProcessed = document.getElementById("btn-download-processed");
+
+  editUploadBox.addEventListener("click", () => {
+    if (!appState.editFile) editFileInput.click();
+  });
+
+  editFileInput.addEventListener("change", (e) => {
+    if (e.target.files.length) {
+      const file = e.target.files[0];
+      appState.editFile = file;
+
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+      img.onload = () => {
+        appState.editNaturalWidth = img.naturalWidth;
+        appState.editNaturalHeight = img.naturalHeight;
+        appState.editAspectRatio = img.naturalWidth / img.naturalHeight;
+
+        resizeW.value = img.naturalWidth;
+        resizeH.value = img.naturalHeight;
+      };
+      img.src = objectUrl;
+
+      editPreviewImg.src = objectUrl;
+      editPlaceholder.style.display = "none";
+      editPreviewWrapper.style.display = "flex";
+      editResultContainer.style.display = "none";
+    }
+  });
+
+  btnEditRemove.addEventListener("click", (e) => {
+    e.stopPropagation();
+    appState.editFile = null;
+    editFileInput.value = "";
+    editPlaceholder.style.display = "flex";
+    editPreviewWrapper.style.display = "none";
+    editResultContainer.style.display = "none";
+  });
+
+  // Subtab switching
+  subtabBtns.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      subtabBtns.forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      appState.activeEditSubtab = btn.dataset.subtab;
+
+      Object.keys(subtabPanels).forEach((k) => subtabPanels[k].classList.remove("active"));
+      if (subtabPanels[appState.activeEditSubtab]) {
+        subtabPanels[appState.activeEditSubtab].classList.add("active");
+      }
+      if (tg?.HapticFeedback) tg.HapticFeedback.selectionChanged();
+    });
+  });
+
+  compressSlider.addEventListener("input", (e) => {
+    compressDisplay.textContent = `${e.target.value}%`;
+  });
+
+  document.querySelectorAll("[data-preset]").forEach((pill) => {
+    pill.addEventListener("click", () => {
+      document.querySelectorAll("[data-preset]").forEach((p) => p.classList.remove("active"));
+      pill.classList.add("active");
+      compressSlider.value = pill.dataset.preset;
+      compressDisplay.textContent = `${pill.dataset.preset}%`;
+    });
+  });
+
+  // Resize Lock calculations
   resizeW.addEventListener("input", () => {
-    if (resizeAspect.checked && state.aspectRatio) {
-      resizeH.value = Math.round(resizeW.value / state.aspectRatio);
+    if (resizeLock.checked && appState.editAspectRatio) {
+      resizeH.value = Math.round(resizeW.value / appState.editAspectRatio);
     }
   });
 
   resizeH.addEventListener("input", () => {
-    if (resizeAspect.checked && state.aspectRatio) {
-      resizeW.value = Math.round(resizeH.value * state.aspectRatio);
+    if (resizeLock.checked && appState.editAspectRatio) {
+      resizeW.value = Math.round(resizeH.value * appState.editAspectRatio);
     }
   });
 
@@ -287,146 +444,163 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  compressQuality.addEventListener("input", (e) => {
-    qualityVal.textContent = `${e.target.value}%`;
-  });
-
-  document.querySelectorAll("[data-qual]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const q = btn.dataset.qual;
-      compressQuality.value = q;
-      qualityVal.textContent = `${q}%`;
-    });
-  });
-
-  // 5. API Execution Handlers
-  document.getElementById("btn-exec-cloud").addEventListener("click", () => {
-    executeTask("/api/upload", new FormData(), "Uploading to ImgBB CDN...");
-  });
-
-  document.getElementById("btn-exec-resize").addEventListener("click", () => {
-    const formData = new FormData();
-    formData.append("width", resizeW.value);
-    formData.append("height", resizeH.value);
-    executeTask("/api/resize", formData, "Resizing image layers...");
-  });
-
-  document.getElementById("btn-exec-compress").addEventListener("click", () => {
-    const formData = new FormData();
-    formData.append("quality", compressQuality.value);
-    executeTask("/api/compress", formData, "Compressing file footprint...");
-  });
-
-  document.getElementById("btn-exec-convert").addEventListener("click", () => {
-    const formData = new FormData();
-    formData.append("format", convertFormat.value);
-    executeTask("/api/convert", formData, `Converting format to ${convertFormat.value.toUpperCase()}...`);
-  });
-
-  document.getElementById("btn-exec-pdf").addEventListener("click", () => {
-    executeTask("/api/pdf", new FormData(), "Compiling active layer into PDF...");
-  });
-
-  // Unified Request Dispatcher
-  async function executeTask(endpoint, formData, spinnerText) {
-    if (!state.file) {
-      alertTelegram("Please import an image into the canvas first!");
+  // Process Action Handler
+  btnProcessImage.addEventListener("click", async () => {
+    if (!appState.editFile) {
+      showTgAlert("Please choose an image to edit!");
       return;
     }
 
-    formData.append("file", state.file);
-    if (tg?.initData) {
-      formData.append("initData", tg.initData);
+    const formData = new FormData();
+    formData.append("file", appState.editFile);
+
+    let endpoint = "/api/compress";
+    let statusMsg = "Optimizing image bytes...";
+
+    if (appState.activeEditSubtab === "resize") {
+      endpoint = "/api/resize";
+      formData.append("width", resizeW.value || appState.editNaturalWidth);
+      formData.append("height", resizeH.value || appState.editNaturalHeight);
+      statusMsg = "Resizing image dimensions...";
+    } else if (appState.activeEditSubtab === "convert") {
+      const selectedFormat = document.querySelector('input[name="target-format"]:checked')?.value || "png";
+      endpoint = "/api/compress"; // If separate conversion route exists, or format parameter
+      formData.append("format", selectedFormat);
+      statusMsg = `Converting format to ${selectedFormat.toUpperCase()}...`;
+    } else {
+      formData.append("quality", compressSlider.value);
     }
 
-    showLoader(true, spinnerText);
-    outputDrawer.style.display = "none";
+    showLoader(true, statusMsg);
 
     try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        body: formData
-      });
-
-      const contentType = response.headers.get("content-type") || "";
+      const response = await fetch(endpoint, { method: "POST", body: formData });
       if (!response.ok) {
-        const errorData = contentType.includes("application/json") ? await response.json() : {};
-        throw new Error(errorData.error || `Server responded with ${response.status}`);
+        const errJson = await response.json().catch(() => ({}));
+        throw new Error(errJson.error || "Image processing failed");
       }
 
-      if (contentType.includes("application/json")) {
-        const result = await response.json();
-        showResultNotification("Upload Succeeded!", "Public link generated successfully.", {
-          url: result.url || result.link
-        });
-      } else {
-        const blob = await response.blob();
-        const outputUrl = URL.createObjectURL(blob);
-        const disposition = response.headers.get("content-disposition");
-        let filename = "processed-asset";
-        
-        if (disposition && disposition.includes("filename=")) {
-          filename = disposition.split("filename=")[1].replace(/["']/g, "");
-        } else {
-          filename = endpoint.includes("pdf") ? "document.pdf" : `edited.${convertFormat.value || "png"}`;
-        }
+      const blob = await response.blob();
+      const outputUrl = URL.createObjectURL(blob);
 
-        showResultNotification("Operation Succeeded!", "Your processed file is ready for download.", {
-          downloadUrl: outputUrl,
-          downloadName: filename
-        });
-      }
+      deductCredit();
 
+      // Update Before vs After sizes
+      baBeforeSize.textContent = formatBytes(appState.editFile.size);
+      baAfterSize.textContent = formatBytes(blob.size);
+
+      const savedPercent = Math.max(0, Math.round(((appState.editFile.size - blob.size) / appState.editFile.size) * 100));
+      baSavedBadge.textContent = savedPercent > 0 ? `Saved ${savedPercent}%` : `Ready`;
+      baSavedBadge.style.color = savedPercent > 0 ? "var(--accent-green)" : "var(--accent-cyan)";
+
+      btnDownloadProcessed.href = outputUrl;
+      btnDownloadProcessed.download = `edited-${Date.now()}.${appState.editFile.name.split(".").pop() || "jpg"}`;
+
+      editResultContainer.style.display = "flex";
       if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
     } catch (err) {
-      console.error(err);
-      alertTelegram(`Error: ${err.message}`);
-      if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred("error");
+      showTgAlert(`Error: ${err.message}`);
     } finally {
       showLoader(false);
     }
-  }
+  });
 
-  // 6. UI Helpers
-  function showLoader(show, text = "") {
-    loaderText.textContent = text;
-    loaderOverlay.style.display = show ? "flex" : "none";
-  }
+  // ===================================================================
+  // SECTION G: PDF CREATOR LOGIC
+  // ===================================================================
+  const pdfUploadBox = document.getElementById("pdf-upload-box");
+  const pdfFileInput = document.getElementById("pdf-file-input");
+  const pdfPlaceholder = document.getElementById("pdf-placeholder");
+  const pdfPreviewWrapper = document.getElementById("pdf-preview-wrapper");
+  const pdfPreviewImg = document.getElementById("pdf-preview-img");
+  const btnPdfRemove = document.getElementById("btn-pdf-remove");
+  const btnCreatePdf = document.getElementById("btn-create-pdf");
+  const pdfResultContainer = document.getElementById("pdf-result-container");
+  const pdfOutputSize = document.getElementById("pdf-output-size");
+  const btnDownloadPdf = document.getElementById("btn-download-pdf");
 
-  function showResultNotification(title, desc, { url, downloadUrl, downloadName }) {
-    outputTitle.textContent = title;
-    outputDesc.textContent = desc;
+  pdfUploadBox.addEventListener("click", () => {
+    if (!appState.pdfFile) pdfFileInput.click();
+  });
 
-    btnResultLink.style.display = "none";
-    btnCopyLink.style.display = "none";
-    btnDownload.style.display = "none";
+  pdfFileInput.addEventListener("change", (e) => {
+    if (e.target.files.length) {
+      appState.pdfFile = e.target.files[0];
+      pdfPreviewImg.src = URL.createObjectURL(appState.pdfFile);
+      pdfPlaceholder.style.display = "none";
+      pdfPreviewWrapper.style.display = "flex";
+      pdfResultContainer.style.display = "none";
+    }
+  });
 
-    if (url) {
-      btnResultLink.href = url;
-      btnResultLink.style.display = "inline-flex";
+  btnPdfRemove.addEventListener("click", (e) => {
+    e.stopPropagation();
+    appState.pdfFile = null;
+    pdfFileInput.value = "";
+    pdfPlaceholder.style.display = "flex";
+    pdfPreviewWrapper.style.display = "none";
+    pdfResultContainer.style.display = "none";
+  });
 
-      btnCopyLink.style.display = "inline-flex";
-      btnCopyLink.onclick = () => {
-        navigator.clipboard.writeText(url);
-        alertTelegram("Public Link copied to clipboard!");
-      };
+  btnCreatePdf.addEventListener("click", async () => {
+    if (!appState.pdfFile) {
+      showTgAlert("Please select an image to convert to PDF!");
+      return;
     }
 
-    if (downloadUrl) {
-      btnDownload.href = downloadUrl;
-      btnDownload.download = downloadName || "download";
-      btnDownload.style.display = "inline-flex";
-    }
+    const formData = new FormData();
+    formData.append("file", appState.pdfFile);
 
-    outputDrawer.style.display = "flex";
+    showLoader(true, "Compiling PDF document layer...");
+    try {
+      const response = await fetch("/api/pdf", { method: "POST", body: formData });
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        throw new Error(errJson.error || "PDF conversion failed");
+      }
+
+      const blob = await response.blob();
+      const outputUrl = URL.createObjectURL(blob);
+
+      deductCredit();
+
+      pdfOutputSize.textContent = formatBytes(blob.size);
+      btnDownloadPdf.href = outputUrl;
+      btnDownloadPdf.download = "document.pdf";
+
+      pdfResultContainer.style.display = "flex";
+      if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+    } catch (err) {
+      showTgAlert(`Error: ${err.message}`);
+    } finally {
+      showLoader(false);
+    }
+  });
+
+  // ===================================================================
+  // SECTION H: COMMON UTILITIES
+  // ===================================================================
+  function deductCredit() {
+    if (appState.user.credits > 0) {
+      appState.user.credits -= 1;
+      document.getElementById("nav-credit-count").textContent = appState.user.credits;
+      document.getElementById("card-credit-count").textContent = appState.user.credits;
+    }
   }
 
-  function alertTelegram(msg) {
+  function showLoader(show, message = "Processing asset...") {
+    const loader = document.getElementById("async-loader");
+    document.getElementById("loader-status-msg").textContent = message;
+    loader.style.display = show ? "flex" : "none";
+  }
+
+  function showTgAlert(msg) {
     if (tg?.showAlert) {
       tg.showAlert(msg);
     } else {
       alert(msg);
     }
+    if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred("error");
   }
 
   function formatBytes(bytes, decimals = 1) {
@@ -436,5 +610,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const sizes = ["Bytes", "KB", "MB", "GB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+  }
+
+  function gcd(a, b) {
+    return b === 0 ? a : gcd(b, a % b);
   }
 });
