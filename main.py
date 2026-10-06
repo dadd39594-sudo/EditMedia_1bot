@@ -1,19 +1,18 @@
 import os
+import io
 import subprocess
-from flask import Flask, render_template, jsonify
+import requests
+from PIL import Image
+from flask import Flask, render_template, request, jsonify, send_file
 
 app = Flask(__name__)
 
 # ==========================================
-# ১. FLASK WEB APP
+# ১. FLASK WEB APP & BACKEND APIS
 # ==========================================
 @app.route('/')
 def index():
     return render_template('index.html')
-
-@app.route('/api/upload', methods=['POST'])
-def process_upload():
-    return jsonify({"success": True, "message": "Website connected!"})
 
 @app.route('/log')
 def view_log():
@@ -23,6 +22,127 @@ def view_log():
         return f"<h1>Bot CCTV Logs:</h1><pre style='font-size: 15px; color: green;'>{logs}</pre>"
     except Exception as e:
         return f"Log file error: {e}"
+
+# 1. API: Image Upload to ImgBB
+@app.route('/api/upload', methods=['POST'])
+def process_upload():
+    try:
+        if 'file' not in request.files:
+            return jsonify({"error": "No file uploaded"}), 400
+
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({"error": "No file selected"}), 400
+
+        api_key = os.environ.get('IMGBB_API_KEY')
+        if not api_key:
+            return jsonify({"error": "IMGBB_API_KEY environment variable is not configured"}), 500
+
+        upload_response = requests.post(
+            "https://api.imgbb.com/1/upload",
+            params={"key": api_key},
+            files={"image": (file.filename, file.read(), file.mimetype)}
+        )
+
+        res_json = upload_response.json()
+        if upload_response.status_code == 200 and res_json.get("success"):
+            direct_url = res_json["data"]["url"]
+            return jsonify({"url": direct_url})
+        else:
+            err_msg = res_json.get("error", {}).get("message", "Upload failed")
+            return jsonify({"error": err_msg}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# 2. API: Resize Image
+@app.route('/api/resize', methods=['POST'])
+def process_resize():
+    try:
+        if 'file' not in request.files:
+            return jsonify({"error": "No file uploaded"}), 400
+
+        file = request.files['file']
+        width = request.form.get('width', type=int)
+        height = request.form.get('height', type=int)
+
+        if not width or not height:
+            return jsonify({"error": "Valid width and height (integers) are required"}), 400
+
+        img = Image.open(file.stream)
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+
+        resized_img = img.resize((width, height), Image.Resampling.LANCZOS)
+
+        output_io = io.BytesIO()
+        resized_img.save(output_io, format='JPEG', quality=95)
+        output_io.seek(0)
+
+        return send_file(
+            output_io,
+            mimetype='image/jpeg',
+            as_attachment=True,
+            download_name='resized.jpg'
+        )
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# 3. API: Compress Image
+@app.route('/api/compress', methods=['POST'])
+def process_compress():
+    try:
+        if 'file' not in request.files:
+            return jsonify({"error": "No file uploaded"}), 400
+
+        file = request.files['file']
+        quality = request.form.get('quality', default=60, type=int)
+
+        if quality < 1 or quality > 100:
+            return jsonify({"error": "Quality must be between 1 and 100"}), 400
+
+        img = Image.open(file.stream)
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+
+        output_io = io.BytesIO()
+        img.save(output_io, format='JPEG', optimize=True, quality=quality)
+        output_io.seek(0)
+
+        return send_file(
+            output_io,
+            mimetype='image/jpeg',
+            as_attachment=True,
+            download_name='compressed.jpg'
+        )
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# 4. API: Convert Image to PDF
+@app.route('/api/pdf', methods=['POST'])
+def process_pdf():
+    try:
+        if 'file' not in request.files:
+            return jsonify({"error": "No file uploaded"}), 400
+
+        file = request.files['file']
+        img = Image.open(file.stream)
+
+        # Convert to RGB to prevent transparency/alpha channel crashes when saving as PDF
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+
+        output_io = io.BytesIO()
+        img.save(output_io, format='PDF')
+        output_io.seek(0)
+
+        return send_file(
+            output_io,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name='document.pdf'
+        )
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # ==========================================
 # ২. TELEBOT (pyTelegramBotAPI) BOT
