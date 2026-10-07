@@ -35,6 +35,7 @@
   --shadow-glow-blue: 0 8px 24px rgba(10, 132, 255, 0.35);
   --shadow-glow-cyan: 0 8px 24px rgba(0, 210, 255, 0.35);
   --shadow-glow-purple: 0 8px 24px rgba(191, 90, 242, 0.35);
+  --shadow-glow-red: 0 8px 24px rgba(255, 69, 58, 0.35);
 }
 
 /* Base Reset */
@@ -64,7 +65,7 @@ input, button, select {
 
 .font-mono { font-family: var(--font-mono) !important; }
 .text-success { color: var(--accent-green) !important; }
-.mt-2 { margin-top: 8px; }
+.mt-2 { margin-top: 10px; }
 
 /* Main App Shell */
 .app-container {
@@ -147,6 +148,7 @@ input, button, select {
   border-radius: var(--radius-pill);
   font-weight: 700;
   font-size: 13px;
+  transition: transform 0.2s ease;
 }
 
 .header-credits-pill i {
@@ -166,7 +168,7 @@ input, button, select {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 16px 16px 100px 16px;
+  padding: 16px 16px 105px 16px;
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
 }
@@ -206,10 +208,10 @@ input, button, select {
 }
 
 /* ===================================================================
-   PAGE 1: HOME LAYOUT
+   PAGE 1: HOME LAYOUT (3 DISTINCT PREMIUM SECTIONS)
    =================================================================== */
 
-/* Section 1: Welcome Greeting Card */
+/* SECTION 1: Welcome Greeting Card */
 .welcome-card {
   background: linear-gradient(145deg, #181d2a 0%, var(--bg-card) 100%);
   border: 1px solid rgba(10, 132, 255, 0.2);
@@ -275,7 +277,7 @@ input, button, select {
   color: var(--accent-blue);
 }
 
-/* Section 2: User Info Card */
+/* SECTION 2: User Info Section */
 .user-card {
   background: var(--bg-card);
 }
@@ -409,7 +411,7 @@ input, button, select {
   background: rgba(255, 69, 58, 0.1);
   border: 1px solid rgba(255, 69, 58, 0.25);
   border-radius: var(--radius-md);
-  padding: 10px 14px;
+  padding: 11px 14px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -418,7 +420,7 @@ input, button, select {
   color: #ff7b72;
 }
 
-/* Section 3: Image Info Section */
+/* SECTION 3: Image Info & Metadata Inspector */
 .inspector-card {
   background: var(--bg-card);
 }
@@ -455,34 +457,34 @@ input, button, select {
 
 .inspector-dropzone {
   background: var(--bg-card-secondary);
-  border: 2px dashed rgba(255, 255, 255, 0.12);
+  border: 2px dashed rgba(255, 255, 255, 0.15);
   border-radius: var(--radius-md);
-  padding: 20px 16px;
+  padding: 22px 16px;
   text-align: center;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .inspector-dropzone:hover {
-  border-color: var(--accent-blue);
-  background: rgba(10, 132, 255, 0.04);
+  border-color: var(--accent-cyan);
+  background: rgba(0, 210, 255, 0.04);
 }
 
 .dropzone-icon-circle {
-  width: 46px;
-  height: 46px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
   background: var(--bg-input);
   display: flex;
   align-items: center;
   justify-content: center;
   margin: 0 auto 10px auto;
-  font-size: 18px;
-  color: var(--accent-blue);
+  font-size: 20px;
+  color: var(--accent-cyan);
 }
 
 .dropzone-text {
-  font-weight: 600;
+  font-weight: 700;
   font-size: 13px;
   color: var(--text-primary);
   margin-bottom: 4px;
@@ -508,6 +510,7 @@ input, button, select {
   display: flex;
   align-items: center;
   justify-content: center;
+  border: 1px solid var(--border-subtle);
 }
 
 .inspector-preview-box img {
@@ -527,17 +530,19 @@ input, button, select {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 7px 10px;
+  padding: 8px 12px;
   background: var(--bg-input);
   border-radius: var(--radius-sm);
   font-size: 12px;
+  border: 1px solid var(--border-subtle);
 }
 
 .spec-label {
   color: var(--text-secondary);
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  font-weight: 500;
 }
 
 .spec-val {
@@ -553,21 +558,21 @@ input, button, select {
 }
 
 .badge-format {
-  background: rgba(10, 132, 255, 0.2);
-  color: var(--accent-blue);
-  padding: 2px 6px;
+  background: rgba(0, 210, 255, 0.15);
+  color: var(--accent-cyan);
+  padding: 3px 8px;
   border-radius: 4px;
   font-weight: 700;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .btn-clear-inspector {
   margin-top: 12px;
   width: 100%;
-  background: transparent;
+  background: var(--bg-card-secondary);
   border: 1px solid var(--border-subtle);
   color: var(--text-secondary);
-  padding: 8px;
+  padding: 10px;
   border-radius: var(--radius-sm);
   font-size: 12px;
   font-weight: 600;
@@ -575,13 +580,14 @@ input, button, select {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 8px;
   transition: all 0.2s;
 }
 
 .btn-clear-inspector:hover {
   background: var(--bg-hover);
   color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 /* ===================================================================
@@ -611,7 +617,7 @@ input, button, select {
 
 .cloud-glow { background: rgba(0, 210, 255, 0.15); color: var(--accent-cyan); box-shadow: var(--shadow-glow-cyan); }
 .edit-glow { background: rgba(10, 132, 255, 0.15); color: var(--accent-blue); box-shadow: var(--shadow-glow-blue); }
-.pdf-glow { background: rgba(255, 69, 58, 0.15); color: var(--accent-red); box-shadow: 0 8px 24px rgba(255, 69, 58, 0.35); }
+.pdf-glow { background: rgba(255, 69, 58, 0.15); color: var(--accent-red); box-shadow: var(--shadow-glow-red); }
 
 .tool-title {
   font-size: 17px;
@@ -631,7 +637,7 @@ input, button, select {
   width: 100%;
   min-height: 160px;
   background: var(--bg-card-secondary);
-  border: 2px dashed rgba(255, 255, 255, 0.12);
+  border: 2px dashed rgba(255, 255, 255, 0.15);
   border-radius: var(--radius-md);
   display: flex;
   align-items: center;
@@ -683,22 +689,27 @@ input, button, select {
   position: absolute;
   top: 10px;
   right: 10px;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.7);
-  border: none;
+  background: rgba(0, 0, 0, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  transition: background 0.2s;
 }
 
-/* Prominent Action Buttons */
+.btn-remove-selected:hover {
+  background: rgba(255, 69, 58, 0.8);
+}
+
+/* REDESIGNED PROMINENT ACTION BUTTONS */
 .btn-action-prominent {
   width: 100%;
-  padding: 15px 20px;
+  padding: 16px 20px;
   border-radius: var(--radius-pill);
   border: none;
   font-size: 15px;
@@ -709,27 +720,44 @@ input, button, select {
   justify-content: center;
   gap: 10px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   color: #fff;
+  position: relative;
+  overflow: hidden;
 }
 
 .btn-action-prominent:active {
-  transform: scale(0.98);
+  transform: scale(0.97);
 }
 
 .btn-cloud {
-  background: linear-gradient(135deg, #0077e6, #00d2ff);
-  box-shadow: 0 8px 25px rgba(0, 210, 255, 0.4);
+  background: linear-gradient(135deg, #0077e6 0%, #00d2ff 100%);
+  box-shadow: 0 8px 25px rgba(0, 210, 255, 0.35);
+}
+
+.btn-cloud:hover {
+  box-shadow: 0 10px 30px rgba(0, 210, 255, 0.5);
+  filter: brightness(1.05);
 }
 
 .btn-edit {
-  background: linear-gradient(135deg, #0056b3, #0a84ff);
-  box-shadow: 0 8px 25px rgba(10, 132, 255, 0.4);
+  background: linear-gradient(135deg, #0056b3 0%, #0a84ff 100%);
+  box-shadow: 0 8px 25px rgba(10, 132, 255, 0.35);
+}
+
+.btn-edit:hover {
+  box-shadow: 0 10px 30px rgba(10, 132, 255, 0.5);
+  filter: brightness(1.05);
 }
 
 .btn-pdf {
-  background: linear-gradient(135deg, #c92a2a, #ff453a);
-  box-shadow: 0 8px 25px rgba(255, 69, 58, 0.4);
+  background: linear-gradient(135deg, #c92a2a 0%, #ff453a 100%);
+  box-shadow: 0 8px 25px rgba(255, 69, 58, 0.35);
+}
+
+.btn-pdf:hover {
+  box-shadow: 0 10px 30px rgba(255, 69, 58, 0.5);
+  filter: brightness(1.05);
 }
 
 /* Edit Studio Subtabs */
@@ -908,18 +936,19 @@ input, button, select {
 }
 
 /* ===================================================================
-   RESULT CONTAINERS (BEFORE VS AFTER & LINK PREVIEWS)
+   RESULT CONTAINERS (ORIGINAL SIZE VS PROCESSED SIZE)
    =================================================================== */
 .tool-result-container {
   margin-top: 20px;
   background: var(--bg-card-secondary);
-  border: 1px solid rgba(48, 209, 88, 0.3);
+  border: 1px solid rgba(48, 209, 88, 0.35);
   border-radius: var(--radius-md);
   padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
   animation: pageFadeIn 0.3s ease-out;
+  box-shadow: 0 4px 20px rgba(48, 209, 88, 0.1);
 }
 
 .result-header {
@@ -973,7 +1002,7 @@ input, button, select {
 }
 
 .btn-sub-action {
-  color: var(--accent-blue);
+  color: var(--accent-cyan);
   text-decoration: none;
   font-size: 12px;
   font-weight: 600;
@@ -982,9 +1011,10 @@ input, button, select {
   gap: 6px;
 }
 
-/* Before vs After Card */
+/* Before vs After Card (Original Size vs Processed Size) */
 .before-after-card {
   background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   padding: 12px 14px;
   display: flex;
@@ -1002,6 +1032,7 @@ input, button, select {
   text-transform: uppercase;
   color: var(--text-muted);
   font-weight: 700;
+  letter-spacing: 0.3px;
 }
 
 .ba-value {
@@ -1017,7 +1048,7 @@ input, button, select {
 
 .ba-divider {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .ba-badge {
@@ -1035,7 +1066,7 @@ input, button, select {
   background: #238636;
   color: #fff;
   text-decoration: none;
-  padding: 12px;
+  padding: 13px;
   border-radius: var(--radius-pill);
   font-weight: 700;
   font-size: 13px;
@@ -1043,7 +1074,7 @@ input, button, select {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  box-shadow: 0 4px 15px rgba(35, 134, 54, 0.3);
+  box-shadow: 0 4px 15px rgba(35, 134, 54, 0.35);
   transition: all 0.2s;
 }
 
@@ -1056,6 +1087,7 @@ input, button, select {
   align-items: center;
   gap: 12px;
   background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
   padding: 12px;
   border-radius: var(--radius-sm);
 }
@@ -1076,10 +1108,9 @@ input, button, select {
   color: #fff;
 }
 
-.pdf-doc-size {
+.pdf-doc-sub {
   font-size: 11px;
   color: var(--text-muted);
-  font-family: var(--font-mono);
 }
 
 /* ===================================================================
@@ -1099,7 +1130,7 @@ input, button, select {
 
 .nav-pill-wrapper {
   pointer-events: auto;
-  background: rgba(21, 24, 33, 0.88);
+  background: rgba(21, 24, 33, 0.9);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -1108,7 +1139,7 @@ input, button, select {
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.65);
 }
 
 .nav-tab-item {
@@ -1159,7 +1190,7 @@ input, button, select {
 .async-loader-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(12, 13, 18, 0.8);
+  background: rgba(12, 13, 18, 0.85);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   display: flex;
@@ -1179,7 +1210,7 @@ input, button, select {
   width: 44px;
   height: 44px;
   border: 4px solid rgba(10, 132, 255, 0.15);
-  border-top-color: var(--accent-blue);
+  border-top-color: var(--accent-cyan);
   border-radius: 50%;
   animation: neonSpin 0.7s infinite linear;
 }
