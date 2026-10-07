@@ -1,16 +1,87 @@
 import os
 import io
+import json
 import subprocess
 import requests
 import telebot
 from PIL import Image
-from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, render_template, request, jsonify, send_file, send_from_directory
+import firebase_admin
+from firebase_admin import credentials, firestore
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder='templates', static_folder='static')
 
-# Initialize a Telebot client for Flask API calls
+# Initialize Telebot client for Flask API calls
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 bot_api = telebot.TeleBot(BOT_TOKEN) if BOT_TOKEN else None
+
+# ==========================================
+# 0. INITIALIZE FIREBASE ADMIN IN FLASK SCOPE
+# ==========================================
+db = None
+try:
+    if not firebase_admin._apps:
+        firebase_json_str = os.environ.get("FIREBASE_CRED_JSON")
+        if firebase_json_str:
+            cred_dict = json.loads(firebase_json_str)
+            cred = credentials.Certificate(cred_dict)
+            firebase_admin.initialize_app(cred)
+        else:
+            firebase_admin.initialize_app()
+    db = firestore.client()
+    print("✅ Flask Scope: Firebase Admin initialized successfully!", flush=True)
+except Exception as e:
+    print(f"⚠️ Flask Scope: Firebase initialization error: {e}", flush=True)
+    db = None
+
+def get_user_ref(user_id):
+    """Returns Firestore document reference for user."""
+    if db is None or not user_id:
+        return None
+    return db.collection("users").document(str(user_id))
+
+def verify_and_deduct_credits(user_id, amount=1):
+    """
+    Checks if user has >= amount credits in Firebase.
+    Returns (True, remaining_credits, None) if success and deducted.
+    Returns (False, current_credits, error_message) if insufficient credits or banned.
+    """
+    if not user_id:
+        return False, 0, "User ID is required"
+
+    if db is None:
+        # Fallback if running without Firebase credentials in local/test environment
+        return True, 999, None
+
+    try:
+        user_ref = get_user_ref(user_id)
+        doc = user_ref.get()
+        if not doc.exists:
+            # Seed new user record with default 10 credits, then deduct required amount
+            initial_credits = 10
+            new_credits = max(0, initial_credits - amount)
+            user_ref.set({
+                "id": int(user_id) if str(user_id).isdigit() else user_id,
+                "credits": new_credits,
+                "referrals": 0,
+                "is_banned": False
+            })
+            return True, new_credits, None
+
+        user_data = doc.to_dict() or {}
+        if user_data.get("is_banned", False):
+            return False, 0, "Account has been suspended"
+
+        current_credits = user_data.get("credits", 0)
+        if current_credits < amount:
+            return False, current_credits, "Insufficient Credits"
+
+        new_credits = current_credits - amount
+        user_ref.update({"credits": new_credits})
+        return True, new_credits, None
+    except Exception as e:
+        print(f"Error checking/deducting credits for {user_id}: {e}", flush=True)
+        return False, 0, f"Database operation failed: {str(e)}"
 
 # ==========================================
 # ১. FLASK WEB APP & BACKEND APIS
@@ -18,6 +89,14 @@ bot_api = telebot.TeleBot(BOT_TOKEN) if BOT_TOKEN else None
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/style.css')
+def serve_css():
+    return send_from_directory('static', 'style.css')
+
+@app.route('/script.js')
+def serve_js():
+    return send_from_directory('static', 'script.js')
 
 @app.route('/log')
 def view_log():
@@ -66,7 +145,57 @@ def check_membership():
     except Exception as e:
         return jsonify({"error": str(e), "channels": [], "unjoined": []}), 500
 
-# 1. API: Image Upload to ImgBB
+# 1. API: Get User Credits and Referrals from Firebase
+@app.route('/api/get_user', methods=['GET', 'POST'])
+def get_user():
+    try:
+        if request.method == 'POST':
+            data = request.get_json(silent=True) or request.form or {}
+            user_id = data.get('user_id')
+        else:
+            user_id = request.args.get('user_id')
+
+        if not user_id:
+            return jsonify({"error": "user_id is required", "credits": 0, "referrals": 0}), 400
+
+        if db is None:
+            return jsonify({
+                "user_id": str(user_id),
+                "credits": 10,
+                "referrals": 0,
+                "status": "dev_mode"
+            })
+
+        user_ref = get_user_ref(user_id)
+        doc = user_ref.get()
+        if doc.exists:
+            user_data = doc.to_dict() or {}
+            return jsonify({
+                "user_id": str(user_id),
+                "credits": user_data.get("credits", 0),
+                "referrals": user_data.get("referrals", 0),
+                "is_banned": user_data.get("is_banned", False),
+                "name": user_data.get("name", "")
+            })
+        else:
+            # First-time user record creation with 10 default credits
+            new_data = {
+                "id": int(user_id) if str(user_id).isdigit() else user_id,
+                "credits": 10,
+                "referrals": 0,
+                "is_banned": False
+            }
+            user_ref.set(new_data)
+            return jsonify({
+                "user_id": str(user_id),
+                "credits": 10,
+                "referrals": 0,
+                "is_banned": False
+            })
+    except Exception as e:
+        return jsonify({"error": str(e), "credits": 0, "referrals": 0}), 500
+
+# 2. API: Image Upload via ImgHippo (Does NOT deduct credits)
 @app.route('/api/upload', methods=['POST'])
 def process_upload():
     try:
@@ -77,27 +206,51 @@ def process_upload():
         if file.filename == '':
             return jsonify({"error": "No file selected"}), 400
 
-        api_key = os.environ.get('IMGBB_API_KEY')
+        api_key = os.environ.get('IMGHIPPO_API_KEY')
         if not api_key:
-            return jsonify({"error": "IMGBB_API_KEY environment variable is not configured"}), 500
+            return jsonify({"error": "IMGHIPPO_API_KEY environment variable is not configured"}), 500
 
-        upload_response = requests.post(
-            "https://api.imgbb.com/1/upload",
-            params={"key": api_key},
-            files={"image": (file.filename, file.read(), file.mimetype)}
+        clean_title = os.path.splitext(file.filename)[0] or "EditMedia_Pro"
+        
+        # Prepare multipart upload for ImgHippo v1
+        upload_files = {
+            'file': (file.filename, file.stream, file.mimetype or 'image/jpeg')
+        }
+        upload_data = {
+            'api_key': api_key,
+            'title': clean_title
+        }
+
+        response = requests.post(
+            "https://api.imghippo.com/v1/upload",
+            data=upload_data,
+            files=upload_files,
+            timeout=60
         )
 
-        res_json = upload_response.json()
-        if upload_response.status_code == 200 and res_json.get("success"):
-            direct_url = res_json["data"]["url"]
-            return jsonify({"url": direct_url})
+        try:
+            res_json = response.json()
+        except Exception:
+            return jsonify({"error": "Invalid response from ImgHippo CDN service"}), 502
+
+        if response.status_code == 200 and res_json.get("success"):
+            data_block = res_json.get("data", {})
+            direct_url = data_block.get("url") or data_block.get("view_url")
+            return jsonify({
+                "success": True,
+                "url": direct_url,
+                "view_url": data_block.get("view_url", direct_url),
+                "title": data_block.get("title", clean_title)
+            })
         else:
-            err_msg = res_json.get("error", {}).get("message", "Upload failed")
-            return jsonify({"error": err_msg}), 400
+            err_msg = res_json.get("message") or res_json.get("error") or "ImgHippo upload failed"
+            return jsonify({"error": str(err_msg)}), 400
+    except requests.RequestException as re:
+        return jsonify({"error": f"ImgHippo connection failed: {str(re)}"}), 502
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# 2. API: Resize Image
+# 3. API: Resize Image (Checks credits, processes with Pillow, deducts 1 credit)
 @app.route('/api/resize', methods=['POST'])
 def process_resize():
     try:
@@ -105,11 +258,20 @@ def process_resize():
             return jsonify({"error": "No file uploaded"}), 400
 
         file = request.files['file']
+        user_id = request.form.get('user_id')
+        if not user_id:
+            return jsonify({"error": "user_id is required"}), 400
+
         width = request.form.get('width', type=int)
         height = request.form.get('height', type=int)
 
-        if not width or not height:
-            return jsonify({"error": "Valid width and height (integers) are required"}), 400
+        if not width or not height or width <= 0 or height <= 0:
+            return jsonify({"error": "Valid width and height (integers > 0) are required"}), 400
+
+        # Check and deduct 1 credit from Firebase
+        can_proceed, remaining_credits, err_msg = verify_and_deduct_credits(user_id, amount=1)
+        if not can_proceed:
+            return jsonify({"error": err_msg or "Insufficient Credits"}), 403
 
         img = Image.open(file.stream)
         if img.mode in ("RGBA", "P"):
@@ -121,16 +283,18 @@ def process_resize():
         resized_img.save(output_io, format='JPEG', quality=95)
         output_io.seek(0)
 
-        return send_file(
+        response = send_file(
             output_io,
             mimetype='image/jpeg',
             as_attachment=True,
             download_name='resized.jpg'
         )
+        response.headers['X-Remaining-Credits'] = str(remaining_credits)
+        return response
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# 3. API: Compress Image
+# 4. API: Compress / Convert Image (Checks credits, processes with Pillow, deducts 1 credit)
 @app.route('/api/compress', methods=['POST'])
 def process_compress():
     try:
@@ -138,29 +302,56 @@ def process_compress():
             return jsonify({"error": "No file uploaded"}), 400
 
         file = request.files['file']
-        quality = request.form.get('quality', default=60, type=int)
+        user_id = request.form.get('user_id')
+        if not user_id:
+            return jsonify({"error": "user_id is required"}), 400
 
-        if quality < 1 or quality > 100:
-            return jsonify({"error": "Quality must be between 1 and 100"}), 400
+        quality = request.form.get('quality', default=75, type=int)
+        target_format = request.form.get('format', default='jpeg').lower()
+
+        if quality < 5 or quality > 100:
+            quality = 75
+
+        # Check and deduct 1 credit from Firebase
+        can_proceed, remaining_credits, err_msg = verify_and_deduct_credits(user_id, amount=1)
+        if not can_proceed:
+            return jsonify({"error": err_msg or "Insufficient Credits"}), 403
 
         img = Image.open(file.stream)
-        if img.mode in ("RGBA", "P"):
-            img = img.convert("RGB")
-
         output_io = io.BytesIO()
-        img.save(output_io, format='JPEG', optimize=True, quality=quality)
-        output_io.seek(0)
 
-        return send_file(
+        if target_format == 'png':
+            if img.mode not in ('RGB', 'RGBA'):
+                img = img.convert('RGBA')
+            img.save(output_io, format='PNG', optimize=True)
+            mime_type = 'image/png'
+            download_name = 'converted.png'
+        elif target_format == 'webp':
+            if img.mode not in ('RGB', 'RGBA'):
+                img = img.convert('RGB')
+            img.save(output_io, format='WEBP', quality=quality, method=6)
+            mime_type = 'image/webp'
+            download_name = 'compressed.webp'
+        else:
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+            img.save(output_io, format='JPEG', optimize=True, quality=quality)
+            mime_type = 'image/jpeg'
+            download_name = 'compressed.jpg'
+
+        output_io.seek(0)
+        response = send_file(
             output_io,
-            mimetype='image/jpeg',
+            mimetype=mime_type,
             as_attachment=True,
-            download_name='compressed.jpg'
+            download_name=download_name
         )
+        response.headers['X-Remaining-Credits'] = str(remaining_credits)
+        return response
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# 4. API: Convert Image to PDF
+# 5. API: Convert Image to PDF (Checks credits, processes with Pillow, deducts 1 credit)
 @app.route('/api/pdf', methods=['POST'])
 def process_pdf():
     try:
@@ -168,22 +359,31 @@ def process_pdf():
             return jsonify({"error": "No file uploaded"}), 400
 
         file = request.files['file']
-        img = Image.open(file.stream)
+        user_id = request.form.get('user_id')
+        if not user_id:
+            return jsonify({"error": "user_id is required"}), 400
 
-        # Convert to RGB to prevent transparency/alpha channel crashes when saving as PDF
+        # Check and deduct 1 credit from Firebase
+        can_proceed, remaining_credits, err_msg = verify_and_deduct_credits(user_id, amount=1)
+        if not can_proceed:
+            return jsonify({"error": err_msg or "Insufficient Credits"}), 403
+
+        img = Image.open(file.stream)
         if img.mode != 'RGB':
             img = img.convert('RGB')
 
         output_io = io.BytesIO()
-        img.save(output_io, format='PDF')
+        img.save(output_io, format='PDF', resolution=100.0)
         output_io.seek(0)
 
-        return send_file(
+        response = send_file(
             output_io,
             mimetype='application/pdf',
             as_attachment=True,
             download_name='document.pdf'
         )
+        response.headers['X-Remaining-Credits'] = str(remaining_credits)
+        return response
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -960,7 +1160,7 @@ bot.infinity_polling()
 with open("bot.py", "w", encoding="utf-8") as f:
     f.write(bot_code)
 
-# ফ্লাস্ক ওয়েবসাইট বটকে চালু করে লগ রেকর্ড করবে
+# Flask application launches bot subprocess and records logs
 log_file = open("bot_debug.log", "w", encoding="utf-8")
 subprocess.Popen(["python", "bot.py"], stdout=log_file, stderr=subprocess.STDOUT)
 
