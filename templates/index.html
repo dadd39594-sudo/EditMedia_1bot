@@ -16,7 +16,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <!-- Google Fonts & FontAwesome -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
   <!-- App Stylesheet -->
@@ -47,8 +47,8 @@
     <!-- Top Global Header -->
     <header class="app-header">
       <div class="header-brand">
-        <!-- ISSUE 2 FIX: Local logo.png path -->
-        <img src="logo.png" alt="Bot DP" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover;">
+        <!-- Local static/logo.png reference with fallback -->
+        <img src="static/logo.png" alt="Bot DP" onerror="this.onerror=null;this.src='logo.png';" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover;">
         <div class="brand-text">
           <span class="brand-name">EditMedia</span>
           <span class="brand-badge">PRO</span>
@@ -204,7 +204,7 @@
             </div>
           </div>
 
-          <!-- Prominent Action Button -->
+          <!-- Redesigned Prominent Action Button -->
           <button class="btn-action-prominent btn-cloud" id="btn-generate-link">
             <i class="fa-solid fa-link"></i>
             <span>Generate Direct CDN Link</span>
@@ -325,11 +325,11 @@
             </div>
           </div>
 
-          <!-- ISSUE 1 FIX: Prominent Action Buttons with Equal Height & Non-Stretching Alignment -->
+          <!-- Prominent Action Buttons: Create & Undo/Reset to Original (Aligned & Equal Height) -->
           <div class="edit-action-row" style="display: flex; align-items: center; gap: 10px; margin-top: 14px; width: 100%;">
-            <button class="btn-action-prominent btn-edit" id="btn-process-image" style="flex: 1; height: 46px; padding: 0 20px; font-size: 14px; display: inline-flex; align-items: center; justify-content: center; gap: 8px;">
+            <button class="btn-action-prominent btn-edit" id="btn-process-image" style="flex: 1; height: 46px; padding: 0 20px; font-size: 14px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap;">
               <i class="fa-solid fa-wand-magic-sparkles"></i>
-              <span>Process Image (1 Credit)</span>
+              <span>Create (1 Credit)</span>
             </button>
             <button type="button" class="btn-action-prominent btn-edit btn-undo-reset" id="btn-undo-reset" title="Undo / Reset to Original" style="height: 46px; padding: 0 18px; font-size: 14px; width: auto; white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex-shrink: 0;">
               <i class="fa-solid fa-rotate-left"></i>
@@ -337,7 +337,7 @@
             </button>
           </div>
 
-          <!-- Result Container with Strict Tool Isolation -->
+          <!-- Result Container with Original Size vs Processed Size -->
           <div class="tool-result-container" id="edit-result-container" style="display: none;">
             <div class="result-header">
               <i class="fa-solid fa-circle-check text-success"></i>
@@ -422,31 +422,31 @@
             <span>The document will be rendered at native resolution in standard PDF document format.</span>
           </div>
 
-          <!-- Prominent Action Button -->
+          <!-- Redesigned Prominent Action Button -->
           <button class="btn-action-prominent btn-pdf" id="btn-create-pdf">
             <i class="fa-solid fa-file-pdf"></i>
             <span>Convert to PDF (1 Credit)</span>
           </button>
 
-          <!-- Result Container with Isolated PDF Stats -->
+          <!-- Result Container with Original Size vs Processed Size -->
           <div class="tool-result-container" id="pdf-result-container" style="display: none;">
             <div class="result-header">
               <i class="fa-solid fa-circle-check text-success"></i>
               <span>PDF Document Ready!</span>
             </div>
 
-            <!-- Isolated PDF Before-After Card -->
-            <div class="before-after-card" id="res-card-pdf">
+            <!-- Original Image Size vs Processed PDF Size Comparison -->
+            <div class="before-after-card">
               <div class="ba-col">
-                <span class="ba-label">Image Size</span>
+                <span class="ba-label">Original Image</span>
                 <span class="ba-value" id="pdf-before-size">0 KB</span>
               </div>
               <div class="ba-divider"><i class="fa-solid fa-arrow-right"></i></div>
               <div class="ba-col">
-                <span class="ba-label">Generated PDF Size</span>
+                <span class="ba-label">Processed PDF</span>
                 <span class="ba-value highlight" id="pdf-output-size">0 KB</span>
               </div>
-              <div class="ba-badge" id="pdf-saved-badge">PDF Ready</div>
+              <div class="ba-badge" id="pdf-saved-badge">Ready</div>
             </div>
 
             <div class="pdf-ready-card mt-2">
@@ -499,6 +499,7 @@
   </div>
 
   <!-- App Script -->
+  <script src="/script.js"></script>
   <script src="/static/script.js"></script>
 </body>
 </html>
