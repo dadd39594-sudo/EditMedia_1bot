@@ -226,12 +226,15 @@ def upload_to_imghippo():
         return jsonify({'error': 'No selected file'}), 400
 
     try:
-        # Hardcoded API Key in URL query parameter to guarantee success
+        # API Key 100% ঠিক নিয়মে Headers-এ পাঠানো হলো
         api_key = "Ih_live_343fafd6d846eea2efc1f5a2d99c584f5fc226c628054f1c"
-        upload_url = f"https://api.imghippo.com/v1/upload?api_key={api_key}"
+        headers = {
+            "X-API-Key": api_key
+        }
         
         response = requests.post(
-            upload_url,
+            "https://api.imghippo.com/v1/upload",
+            headers=headers,
             files={"file": (file.filename, file.read(), file.mimetype)}
         )
         
@@ -698,7 +701,7 @@ def message_dispatcher(message):
                     f"{change_text}\n\n"
                     f"💳 <b>ɴᴇᴡ ʙᴀʟᴀɴᴄᴇ:</b> {new_credits}\n"
                     "━━━━━━━━━━━━━━━━━━\n"
-                    "<i>ɴᴇᴇᴅ ʜᴇʟᴘ ᴏʀ ᴡᴀɴᴛ ᴛᴏ ʀᴇǫᴜᴇsᴛ ᴄʀᴇᴅɪᴛs? ᴄʟɪᴄᴋ ʙᴇʟᴏᴡ.</i>"
+                    "<i>ɴᴇᴇᴅ ʜᴇʟᴘ ᴏʀ ᴡᴀɴᴛ ᴛᴏ ʀᴇǫᴜᴇsপতি? ᴄʟɪᴄᴋ ʙᴇʟᴏᴡ.</i>"
                     "</blockquote>"
                 )
                 req_keyboard = InlineKeyboardMarkup()
