@@ -29,6 +29,7 @@ document.addEventListener("DOMContentLoaded", () => {
     },
     cloudFile: null,
     editFile: null,
+    editImgElement: null,
     pdfFile: null,
     editNaturalWidth: 0,
     editNaturalHeight: 0,
@@ -110,11 +111,41 @@ document.addEventListener("DOMContentLoaded", () => {
     if (cardRef) cardRef.textContent = appState.user.referrals;
   }
 
-  function deductLocalCredit() {
+  /**
+   * Universal Credit Deduction: Calls backend /api/deduct_credit ONLY AFTER successful action
+   */
+  async function triggerDeductCredit() {
+    try {
+      const response = await fetch("/api/deduct_credit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: appState.user.id })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (typeof data.credits === "number") {
+          appState.user.credits = data.credits;
+          updateCreditsDOM();
+          return true;
+        }
+      }
+    } catch (err) {
+      console.warn("Deduct credit network sync notice:", err);
+    }
+    // Local fallback decrement if offline or test environment
     if (typeof appState.user.credits === "number" && appState.user.credits > 0) {
       appState.user.credits -= 1;
       updateCreditsDOM();
     }
+    return true;
+  }
+
+  function checkCreditsAvailable() {
+    if (typeof appState.user.credits === "number" && appState.user.credits < 1) {
+      showTgAlert("⚠️ Insufficient Credits! You have 0 credits remaining. Please refer friends using your bot link to earn free credits!");
+      return false;
+    }
+    return true;
   }
 
   initUserData();
@@ -265,9 +296,30 @@ document.addEventListener("DOMContentLoaded", () => {
   const metaAspect = document.getElementById("meta-aspect");
 
   if (inspectorDropzone && inspectorFileInput) {
-    inspectorDropzone.addEventListener("click", () => {
-      if (inspectorResultView.style.display === "none") {
+    inspectorDropzone.addEventListener("click", (e) => {
+      if (e.target !== btnClearInspector && !btnClearInspector?.contains(e.target)) {
         inspectorFileInput.click();
+      }
+    });
+
+    ["dragenter", "dragover"].forEach((eventName) => {
+      inspectorDropzone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        inspectorDropzone.classList.add("drag-hover");
+      });
+    });
+
+    ["dragleave", "drop"].forEach((eventName) => {
+      inspectorDropzone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        inspectorDropzone.classList.remove("drag-hover");
+      });
+    });
+
+    inspectorDropzone.addEventListener("drop", (e) => {
+      const files = e.dataTransfer?.files;
+      if (files && files.length > 0) {
+        inspectImage(files[0]);
       }
     });
 
@@ -299,6 +351,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const ext = file.name.split(".").pop();
         if (ext) formatExt = ext.toUpperCase();
       }
+      if (formatExt === "JPEG") formatExt = "JPG";
       metaFormat.textContent = formatExt;
 
       const gcdVal = gcd(img.naturalWidth, img.naturalHeight);
@@ -334,7 +387,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ===================================================================
-  // SECTION E: CLOUD PAGE (IMGHIPPO CDN - FREE UPLOAD)
+  // SECTION E: CLOUD PAGE (IMGHIPPO CDN - CLIENT PRE-COMPRESSION)
   // ===================================================================
   const cloudUploadBox = document.getElementById("cloud-upload-box");
   const cloudFileInput = document.getElementById("cloud-file-input");
@@ -375,6 +428,47 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  /**
+   * Pre-compress image in browser using HTML5 Canvas to accelerate upload
+   */
+  function preCompressImageForCloud(file) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        let w = img.naturalWidth;
+        let h = img.naturalHeight;
+        const maxDimension = 1920;
+
+        if (w > maxDimension || h > maxDimension) {
+          if (w > h) {
+            h = Math.round((h * maxDimension) / w);
+            w = maxDimension;
+          } else {
+            w = Math.round((w * maxDimension) / h);
+            h = maxDimension;
+          }
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, w, h);
+
+        canvas.toBlob((blob) => {
+          resolve(blob || file);
+        }, "image/jpeg", 0.85);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        resolve(file);
+      };
+      img.src = objectUrl;
+    });
+  }
+
   if (btnGenerateLink) {
     btnGenerateLink.addEventListener("click", async () => {
       if (!appState.cloudFile) {
@@ -382,12 +476,14 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      const formData = new FormData();
-      formData.append("file", appState.cloudFile);
-      formData.append("user_id", appState.user.id);
-
-      showLoader(true, "Uploading asset to ImgHippo CDN...");
+      showLoader(true, "Optimizing & uploading asset to ImgHippo CDN...");
       try {
+        const uploadBlob = await preCompressImageForCloud(appState.cloudFile);
+        const formData = new FormData();
+        const fileName = (appState.cloudFile.name.substring(0, appState.cloudFile.name.lastIndexOf('.')) || "upload") + ".jpg";
+        formData.append("file", uploadBlob, fileName);
+        formData.append("user_id", appState.user.id);
+
         const response = await fetch("/api/upload", {
           method: "POST",
           body: formData
@@ -425,7 +521,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ===================================================================
-  // SECTION F: EDIT STUDIO (RESIZE, COMPRESS, CONVERT)
+  // SECTION F: EDIT STUDIO (100% CLIENT-SIDE CANVAS ENGINE)
   // ===================================================================
   const editUploadBox = document.getElementById("edit-upload-box");
   const editFileInput = document.getElementById("edit-file-input");
@@ -435,6 +531,28 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnEditRemove = document.getElementById("btn-edit-remove");
   const btnProcessImage = document.getElementById("btn-process-image");
   const editResultContainer = document.getElementById("edit-result-container");
+
+  // Isolated Result Cards
+  const resCardCompress = document.getElementById("res-card-compress");
+  const resCardResize = document.getElementById("res-card-resize");
+  const resCardConvert = document.getElementById("res-card-convert");
+
+  // Compress Result Elements
+  const baBeforeSize = document.getElementById("ba-before-size");
+  const baAfterSize = document.getElementById("ba-after-size");
+  const baSavedBadge = document.getElementById("ba-saved-badge");
+
+  // Resize Result Elements
+  const resizeBeforeDims = document.getElementById("resize-before-dims");
+  const resizeAfterDims = document.getElementById("resize-after-dims");
+  const resizeSizeBadge = document.getElementById("resize-size-badge");
+
+  // Convert Result Elements
+  const convertBeforeFmt = document.getElementById("convert-before-fmt");
+  const convertAfterFmt = document.getElementById("convert-after-fmt");
+  const convertSizeBadge = document.getElementById("convert-size-badge");
+
+  const btnDownloadProcessed = document.getElementById("btn-download-processed");
 
   const subtabBtns = document.querySelectorAll(".subtab-btn");
   const subtabPanels = {
@@ -449,10 +567,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const resizeH = document.getElementById("resize-input-h");
   const resizeLock = document.getElementById("resize-ratio-lock");
 
-  const baBeforeSize = document.getElementById("ba-before-size");
-  const baAfterSize = document.getElementById("ba-after-size");
-  const baSavedBadge = document.getElementById("ba-saved-badge");
-  const btnDownloadProcessed = document.getElementById("btn-download-processed");
+  let originalUploadedFile = null;
+  const btnUndoReset = document.getElementById("btn-undo-reset");
 
   if (editUploadBox && editFileInput) {
     editUploadBox.addEventListener("click", () => {
@@ -462,11 +578,13 @@ document.addEventListener("DOMContentLoaded", () => {
     editFileInput.addEventListener("change", (e) => {
       if (e.target.files && e.target.files.length) {
         const file = e.target.files[0];
+        originalUploadedFile = file;
         appState.editFile = file;
 
         const img = new Image();
         const objectUrl = URL.createObjectURL(file);
         img.onload = () => {
+          appState.editImgElement = img;
           appState.editNaturalWidth = img.naturalWidth;
           appState.editNaturalHeight = img.naturalHeight;
           appState.editAspectRatio = img.naturalWidth / img.naturalHeight;
@@ -484,10 +602,39 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  if (btnUndoReset) {
+    btnUndoReset.addEventListener("click", () => {
+      if (!originalUploadedFile) {
+        showTgAlert("Please choose an image to edit first!");
+        return;
+      }
+
+      // Restore to original uploaded file
+      appState.editFile = originalUploadedFile;
+
+      const objectUrl = URL.createObjectURL(originalUploadedFile);
+      editPreviewImg.src = objectUrl;
+
+      // Restore original dimensions
+      if (resizeW) resizeW.value = appState.editNaturalWidth;
+      if (resizeH) resizeH.value = appState.editNaturalHeight;
+
+      // Reset result containers to default hidden state
+      editResultContainer.style.display = "none";
+      if (resCardCompress) resCardCompress.style.display = "none";
+      if (resCardResize) resCardResize.style.display = "none";
+      if (resCardConvert) resCardConvert.style.display = "none";
+
+      if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+    });
+  }
+
   if (btnEditRemove) {
     btnEditRemove.addEventListener("click", (e) => {
       e.stopPropagation();
+      originalUploadedFile = null;
       appState.editFile = null;
+      appState.editImgElement = null;
       editFileInput.value = "";
       editPlaceholder.style.display = "flex";
       editPreviewWrapper.style.display = "none";
@@ -507,6 +654,10 @@ document.addEventListener("DOMContentLoaded", () => {
       if (subtabPanels[appState.activeEditSubtab]) {
         subtabPanels[appState.activeEditSubtab].classList.add("active");
       }
+
+      // Hide result container until processed on this subtab
+      editResultContainer.style.display = "none";
+
       if (tg?.HapticFeedback) tg.HapticFeedback.selectionChanged();
     });
   });
@@ -548,6 +699,9 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
+  /**
+   * 1-SECOND INSTANT CLIENT-SIDE IMAGE PROCESSING ENGINE (HTML5 CANVAS)
+   */
   if (btnProcessImage) {
     btnProcessImage.addEventListener("click", async () => {
       if (!appState.editFile) {
@@ -555,91 +709,164 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      if (typeof appState.user.credits === "number" && appState.user.credits < 1) {
-        showTgAlert("⚠️ Insufficient Credits! You have 0 credits. Please refer friends using your bot link to earn +5 credits for free.");
-        return;
-      }
+      // 1. Verify credits before starting
+      if (!checkCreditsAvailable()) return;
 
-      const formData = new FormData();
-      formData.append("file", appState.editFile);
-      formData.append("user_id", appState.user.id);
+      const activeTab = appState.activeEditSubtab;
+      let targetW = appState.editNaturalWidth;
+      let targetH = appState.editNaturalHeight;
 
-      let endpoint = "/api/compress";
-      let statusMsg = "Optimizing image bytes...";
-      let targetExt = "jpg";
+      // Handle Resize inputs & STRICT 0x0 validation
+      if (activeTab === "resize") {
+        targetW = parseInt(resizeW?.value, 10);
+        targetH = parseInt(resizeH?.value, 10);
 
-      if (appState.activeEditSubtab === "resize") {
-        endpoint = "/api/resize";
-        formData.append("width", resizeW.value || appState.editNaturalWidth);
-        formData.append("height", resizeH.value || appState.editNaturalHeight);
-        statusMsg = "Resizing image resolution...";
-      } else if (appState.activeEditSubtab === "convert") {
-        const selectedFormat = document.querySelector('input[name="target-format"]:checked')?.value || "jpeg";
-        formData.append("format", selectedFormat);
-        statusMsg = `Converting format to ${selectedFormat.toUpperCase()}...`;
-        targetExt = selectedFormat === "jpeg" ? "jpg" : selectedFormat;
-      } else {
-        formData.append("quality", compressSlider ? compressSlider.value : 75);
-      }
-
-      showLoader(true, statusMsg);
-
-      try {
-        const response = await fetch(endpoint, {
-          method: "POST",
-          body: formData
-        });
-
-        if (response.status === 403) {
-          const errData = await response.json().catch(() => ({}));
-          showTgAlert(`⚠️ Insufficient Credits! ${errData.error || "You do not have enough credits to perform this action. Refer friends to get free credits!"}`);
+        if (!targetW || !targetH || targetW <= 0 || targetH <= 0 || isNaN(targetW) || isNaN(targetH)) {
+          showTgAlert("❌ Invalid dimensions! Both Width and Height must be greater than 0 pixels.");
           return;
         }
+      }
 
-        if (!response.ok) {
-          const errJson = await response.json().catch(() => ({}));
-          throw new Error(errJson.error || "Image processing failed");
-        }
+      // Target Format & MIME Type
+      let mimeType = "image/jpeg";
+      let targetExt = "jpg";
+      let quality = 0.85;
+      let origFormat = "JPG";
 
-        const blob = await response.blob();
-        const outputUrl = URL.createObjectURL(blob);
+      if (appState.editFile.type && appState.editFile.type.includes("/")) {
+        origFormat = appState.editFile.type.split("/")[1].toUpperCase();
+        if (origFormat === "JPEG") origFormat = "JPG";
+      }
 
-        deductLocalCredit();
-
-        const origSize = appState.editFile.size;
-        const processedSize = blob.size;
-
-        baBeforeSize.textContent = formatBytes(origSize);
-        baAfterSize.textContent = formatBytes(processedSize);
-
-        const savedPercent = Math.round(((origSize - processedSize) / origSize) * 100);
-        if (savedPercent > 0) {
-          baSavedBadge.textContent = `Saved ${savedPercent}%`;
-          baSavedBadge.style.color = "var(--accent-green)";
-        } else if (savedPercent < 0) {
-          baSavedBadge.textContent = `+${Math.abs(savedPercent)}% Size`;
-          baSavedBadge.style.color = "var(--accent-cyan)";
+      if (activeTab === "compress") {
+        // ISSUE 1 FIX: Compression MUST explicitly set format to 'image/jpeg'
+        // and pass the quality slider value as a decimal (e.g. 36% -> 0.36)
+        mimeType = "image/jpeg";
+        targetExt = "jpg";
+        const sliderVal = compressSlider ? parseInt(compressSlider.value, 10) : 75;
+        quality = Math.max(0.05, Math.min(1.0, sliderVal / 100));
+      } else if (activeTab === "convert") {
+        const selectedFormat = document.querySelector('input[name="target-format"]:checked')?.value || "jpeg";
+        if (selectedFormat === "png") {
+          mimeType = "image/png";
+          targetExt = "png";
+          quality = 1.0;
+        } else if (selectedFormat === "webp") {
+          mimeType = "image/webp";
+          targetExt = "webp";
+          quality = 0.85;
         } else {
-          baSavedBadge.textContent = `Optimized`;
-          baSavedBadge.style.color = "var(--accent-cyan)";
+          mimeType = "image/jpeg";
+          targetExt = "jpg";
+          quality = 0.85;
         }
+      } else {
+        // Resize tab: default to JPEG with high quality
+        mimeType = "image/jpeg";
+        targetExt = "jpg";
+        quality = 0.90;
+      }
 
-        btnDownloadProcessed.href = outputUrl;
-        const cleanName = appState.editFile.name.substring(0, appState.editFile.name.lastIndexOf('.')) || "image";
-        btnDownloadProcessed.download = `${cleanName}-edited.${targetExt}`;
+      showLoader(true, "Processing image instantly...");
 
-        editResultContainer.style.display = "flex";
-        if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+      try {
+        const img = new Image();
+        const objectUrl = URL.createObjectURL(appState.editFile);
+
+        img.onload = () => {
+          URL.revokeObjectURL(objectUrl);
+
+          const canvas = document.createElement("canvas");
+          canvas.width = targetW;
+          canvas.height = targetH;
+          const ctx = canvas.getContext("2d");
+
+          if (mimeType === "image/jpeg") {
+            ctx.fillStyle = "#FFFFFF";
+            ctx.fillRect(0, 0, targetW, targetH);
+          }
+
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+          ctx.drawImage(img, 0, 0, targetW, targetH);
+
+          canvas.toBlob(async (blob) => {
+            if (!blob) {
+              showLoader(false);
+              showTgAlert("Processing error: Canvas failed to export image blob.");
+              return;
+            }
+
+            const processedUrl = URL.createObjectURL(blob);
+            editPreviewImg.src = processedUrl;
+
+            const origSize = appState.editFile.size;
+            const processedSize = blob.size;
+
+            // STRICT SEPARATION OF TOOL RESULTS
+            if (resCardCompress) resCardCompress.style.display = "none";
+            if (resCardResize) resCardResize.style.display = "none";
+            if (resCardConvert) resCardConvert.style.display = "none";
+
+            const cleanName = appState.editFile.name.substring(0, appState.editFile.name.lastIndexOf('.')) || "image";
+
+            if (activeTab === "compress") {
+              if (baBeforeSize) baBeforeSize.textContent = formatBytes(origSize);
+              if (baAfterSize) baAfterSize.textContent = formatBytes(processedSize);
+              const savedPercent = Math.round(((origSize - processedSize) / origSize) * 100);
+              if (baSavedBadge) {
+                if (savedPercent > 0) {
+                  baSavedBadge.textContent = `Saved ${savedPercent}%`;
+                  baSavedBadge.style.color = "var(--accent-green)";
+                } else {
+                  baSavedBadge.textContent = "Optimized";
+                  baSavedBadge.style.color = "var(--accent-cyan)";
+                }
+              }
+              if (resCardCompress) resCardCompress.style.display = "flex";
+              btnDownloadProcessed.download = `${cleanName}-compressed.${targetExt}`;
+            } else if (activeTab === "resize") {
+              if (resizeBeforeDims) resizeBeforeDims.textContent = `${appState.editNaturalWidth} × ${appState.editNaturalHeight}`;
+              if (resizeAfterDims) resizeAfterDims.textContent = `${targetW} × ${targetH}`;
+              if (resizeSizeBadge) resizeSizeBadge.textContent = formatBytes(processedSize);
+              if (resCardResize) resCardResize.style.display = "flex";
+              btnDownloadProcessed.download = `${cleanName}-${targetW}x${targetH}.${targetExt}`;
+            } else if (activeTab === "convert") {
+              if (convertBeforeFmt) convertBeforeFmt.textContent = origFormat;
+              if (convertAfterFmt) convertAfterFmt.textContent = targetExt.toUpperCase();
+              if (convertSizeBadge) convertSizeBadge.textContent = formatBytes(processedSize);
+              if (resCardConvert) resCardConvert.style.display = "flex";
+              btnDownloadProcessed.download = `${cleanName}-converted.${targetExt}`;
+            }
+
+            // Assign instant Download link
+            btnDownloadProcessed.href = processedUrl;
+            editResultContainer.style.display = "flex";
+
+            // Universal Credit Deduction: Call backend ONLY AFTER successful processing
+            await triggerDeductCredit();
+
+            showLoader(false);
+            if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+          }, mimeType, quality);
+        };
+
+        img.onerror = () => {
+          URL.revokeObjectURL(objectUrl);
+          showLoader(false);
+          showTgAlert("Failed to load image for canvas manipulation.");
+        };
+
+        img.src = objectUrl;
       } catch (err) {
-        showTgAlert(`Error: ${err.message}`);
-      } finally {
         showLoader(false);
+        showTgAlert(`Processing Error: ${err.message}`);
       }
     });
   }
 
   // ===================================================================
-  // SECTION G: PDF CREATOR LOGIC
+  // SECTION G: PDF CREATOR (100% CLIENT-SIDE WITH jsPDF)
   // ===================================================================
   const pdfUploadBox = document.getElementById("pdf-upload-box");
   const pdfFileInput = document.getElementById("pdf-file-input");
@@ -688,42 +915,59 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      if (typeof appState.user.credits === "number" && appState.user.credits < 1) {
-        showTgAlert("⚠️ Insufficient Credits! You have 0 credits. Please refer friends using your bot link to earn +5 credits for free.");
-        return;
-      }
+      // Check credit balance before starting
+      if (!checkCreditsAvailable()) return;
 
-      const formData = new FormData();
-      formData.append("file", appState.pdfFile);
-      formData.append("user_id", appState.user.id);
+      showLoader(true, "Compiling PDF document locally...");
 
-      showLoader(true, "Compiling PDF document layer...");
       try {
-        const response = await fetch("/api/pdf", {
-          method: "POST",
-          body: formData
+        const img = new Image();
+        const objectUrl = URL.createObjectURL(appState.pdfFile);
+
+        await new Promise((resolve, reject) => {
+          img.onload = () => resolve();
+          img.onerror = () => reject(new Error("Failed to load image for PDF compilation"));
+          img.src = objectUrl;
         });
 
-        if (response.status === 403) {
-          const errData = await response.json().catch(() => ({}));
-          showTgAlert(`⚠️ Insufficient Credits! ${errData.error || "You do not have enough credits to perform this action. Refer friends to get free credits!"}`);
-          return;
+        const width = img.naturalWidth;
+        const height = img.naturalHeight;
+        const isLandscape = width > height;
+
+        // Render to canvas to produce standard RGB JPEG bytes for jsPDF
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const imgData = canvas.toDataURL("image/jpeg", 0.95);
+
+        const jsPDFClass = window.jspdf?.jsPDF;
+        if (!jsPDFClass) {
+          throw new Error("jsPDF library is not loaded. Please verify your connection.");
         }
 
-        if (!response.ok) {
-          const errJson = await response.json().catch(() => ({}));
-          throw new Error(errJson.error || "PDF conversion failed");
-        }
+        const pdf = new jsPDFClass({
+          orientation: isLandscape ? "landscape" : "portrait",
+          unit: "px",
+          format: [width, height]
+        });
 
-        const blob = await response.blob();
-        const outputUrl = URL.createObjectURL(blob);
+        pdf.addImage(imgData, "JPEG", 0, 0, width, height);
+        const pdfBlob = pdf.output("blob");
 
-        deductLocalCredit();
+        URL.revokeObjectURL(objectUrl);
 
+        const outputUrl = URL.createObjectURL(pdfBlob);
+        const cleanName = appState.pdfFile.name.substring(0, appState.pdfFile.name.lastIndexOf('.')) || "document";
+        const docTitle = `${cleanName}.pdf`;
+
+        // Update PDF Result UI
         if (pdfBeforeSize) pdfBeforeSize.textContent = formatBytes(appState.pdfFile.size);
-        if (pdfOutputSize) pdfOutputSize.textContent = formatBytes(blob.size);
-
-        const docTitle = `${appState.pdfFile.name.substring(0, appState.pdfFile.name.lastIndexOf('.')) || "document"}.pdf`;
+        if (pdfOutputSize) pdfOutputSize.textContent = formatBytes(pdfBlob.size);
         if (pdfOutputName) pdfOutputName.textContent = docTitle;
 
         if (btnDownloadPdf) {
@@ -732,11 +976,15 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         pdfResultContainer.style.display = "flex";
+
+        // Call backend deduct route ONLY AFTER successful local processing
+        await triggerDeductCredit();
+
+        showLoader(false);
         if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
       } catch (err) {
-        showTgAlert(`PDF Error: ${err.message}`);
-      } finally {
         showLoader(false);
+        showTgAlert(`PDF Generation Error: ${err.message}`);
       }
     });
   }
