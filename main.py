@@ -215,7 +215,7 @@ def deduct_credit():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# 3. API: Image Upload via ImgHippo (Does NOT deduct credits)
+# 2. API: Image Upload via ImgHippo (Does NOT deduct credits)
 @app.route('/api/upload', methods=['POST'])
 def process_upload():
     try:
@@ -226,26 +226,16 @@ def process_upload():
         if file.filename == '':
             return jsonify({"error": "No file selected"}), 400
 
-        api_key = os.environ.get('IMGHIPPO_API_KEY')
+        api_key = os.environ.get("IMGHIPPO_API_KEY")
         if not api_key:
             return jsonify({"error": "IMGHIPPO_API_KEY environment variable is not configured"}), 500
 
         clean_title = os.path.splitext(file.filename)[0] or "EditMedia_Pro"
-        
-        # Prepare multipart upload for ImgHippo v1
-        upload_files = {
-            'file': (file.filename, file.stream, file.mimetype or 'image/jpeg')
-        }
-        upload_data = {
-            'api_key': api_key,
-            'title': clean_title
-        }
 
         response = requests.post(
             "https://api.imghippo.com/v1/upload",
-            data=upload_data,
-            files=upload_files,
-            timeout=60
+            data={"api_key": api_key},
+            files={"file": (file.filename, file.read(), file.mimetype)}
         )
 
         try:
@@ -320,7 +310,7 @@ try:
             _orig_ikb_init(self, *args, **kwargs)
             if style:
                 setattr(self, "style", style)
-        InlineKeyboardButton.__init__ = _safe_ikb_init
+            InlineKeyboardButton.__init__ = _safe_ikb_init
 except Exception:
     pass
 
