@@ -217,48 +217,32 @@ def deduct_credit():
 
 # 2. API: Image Upload via ImgHippo (Does NOT deduct credits)
 @app.route('/api/upload', methods=['POST'])
-def process_upload():
+def upload_to_imghippo():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+
     try:
-        if 'file' not in request.files:
-            return jsonify({"error": "No file uploaded"}), 400
-
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({"error": "No file selected"}), 400
-
-        api_key = os.environ.get("IMGHIPPO_API_KEY")
-        if not api_key:
-            return jsonify({"error": "IMGHIPPO_API_KEY environment variable is not configured"}), 500
-
-        clean_title = os.path.splitext(file.filename)[0] or "EditMedia_Pro"
-
+        # Hardcoded API Key in URL query parameter to guarantee success
+        api_key = "Ih_live_343fafd6d846eea2efc1f5a2d99c584f5fc226c628054f1c"
+        upload_url = f"https://api.imghippo.com/v1/upload?api_key={api_key}"
+        
         response = requests.post(
-            "https://api.imghippo.com/v1/upload",
-            data={"api_key": api_key},
+            upload_url,
             files={"file": (file.filename, file.read(), file.mimetype)}
         )
-
-        try:
-            res_json = response.json()
-        except Exception:
-            return jsonify({"error": "Invalid response from ImgHippo CDN service"}), 502
-
-        if response.status_code == 200 and res_json.get("success"):
-            data_block = res_json.get("data", {})
-            direct_url = data_block.get("url") or data_block.get("view_url")
-            return jsonify({
-                "success": True,
-                "url": direct_url,
-                "view_url": data_block.get("view_url", direct_url),
-                "title": data_block.get("title", clean_title)
-            })
+        
+        result = response.json()
+        if response.status_code == 200 and result.get("status") == 200:
+            return jsonify({'url': result['data']['url']})
         else:
-            err_msg = res_json.get("message") or res_json.get("error") or "ImgHippo upload failed"
-            return jsonify({"error": str(err_msg)}), 400
-    except requests.RequestException as re:
-        return jsonify({"error": f"ImgHippo connection failed: {str(re)}"}), 502
+            return jsonify({'error': result.get("message", "Upload failed")}), 400
+
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({'error': str(e)}), 500
 
 
 # ==========================================
@@ -310,7 +294,7 @@ try:
             _orig_ikb_init(self, *args, **kwargs)
             if style:
                 setattr(self, "style", style)
-            InlineKeyboardButton.__init__ = _safe_ikb_init
+        InlineKeyboardButton.__init__ = _safe_ikb_init
 except Exception:
     pass
 
