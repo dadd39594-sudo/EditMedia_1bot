@@ -227,7 +227,7 @@ def upload_to_imghippo():
 
     try:
         # API Key 100% ঠিক নিয়মে Headers-এ পাঠানো হলো
-        api_key = "Ih_live_343fafd6d846eea2efc1f5a2d99c584f5fc226c628054f1c"
+        api_key = "Ih_live_d8d5a392ba105a7d6264745a023521bc9a1fcc780d81976a"
         headers = {
             "X-API-Key": api_key
         }
@@ -533,7 +533,7 @@ def message_dispatcher(message):
                 "<blockquote>"
                 "<b>✅ REQUEST SENT ✅</b>\n"
                 "━━━━━━━━━━━━━━━━━━\n"
-                "ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ ʜᴀs ʙᴇᴇɴ sᴜᴄᴄᴇssꜰᴜʟʟʏ sᴇɴᴛ ᴛᴏ ᴛʜᴇ ᴀᴅᴍɪɴ!\n\n"
+                "ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ ʜᴀs ʙᴇᴇɴ sᴜᴄssꜰᴜʟʟʏ sᴇɴᴛ ᴛᴏ ᴛʜᴇ ᴀᴅᴍɪɴ!\n\n"
                 "👉 <i>ᴘʟᴇᴀsᴇ sᴇɴᴅ /start ᴛᴏ ɢᴏ ʙᴀᴄᴋ ᴛᴏ ᴛʜᴇ ᴍᴀɪɴ ᴍᴇɴᴜ.</i>\n"
                 "━━━━━━━━━━━━━━━━━━"
                 "</blockquote>"
@@ -701,7 +701,7 @@ def message_dispatcher(message):
                     f"{change_text}\n\n"
                     f"💳 <b>ɴᴇᴡ ʙᴀʟᴀɴᴄᴇ:</b> {new_credits}\n"
                     "━━━━━━━━━━━━━━━━━━\n"
-                    "<i>ɴᴇᴇᴅ ʜᴇʟᴘ ᴏʀ ᴡᴀɴᴛ ᴛᴏ ʀᴇǫᴜᴇsপতি? ᴄʟɪᴄᴋ ʙᴇʟᴏᴡ.</i>"
+                    "<i>ɴᴇᴇᴅ ʜᴇʟᴘ ᴏʀ ᴡᴀɴᴛ ᴛᴏ ʀᴇǫᴜᴇsᴛ ᴄʀᴇᴅɪᴛs? ᴄʟɪᴄᴋ ʙᴇʟᴏᴡ.</i>"
                     "</blockquote>"
                 )
                 req_keyboard = InlineKeyboardMarkup()
