@@ -4,14 +4,23 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>EditMedia Pro - Telegram Studio</title>
+  <meta name="description" content="Production-grade Telegram WebApp for image processing, compression, format conversion, PDF creation, metadata inspection, and cloud CDN generation." />
+  <meta property="og:title" content="EditMedia Pro - Telegram Studio" />
+  <meta property="og:description" content="Production-grade Telegram WebApp for image processing, compression, format conversion, PDF creation, metadata inspection, and cloud CDN generation." />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image" />
+
   <!-- Telegram WebApp SDK -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <!-- jsPDF Client-Side Library -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <!-- Google Fonts & FontAwesome -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://fonts.gstatic.com" />
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
   <!-- App Stylesheet -->
+  <link rel="stylesheet" href="/style.css" />
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
@@ -38,7 +47,8 @@
     <!-- Top Global Header -->
     <header class="app-header">
       <div class="header-brand">
-        <div class="brand-logo">Ps</div>
+        <!-- ISSUE 2 FIX: Local logo.png path -->
+        <img src="logo.png" alt="Bot DP" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover;">
         <div class="brand-text">
           <span class="brand-name">EditMedia</span>
           <span class="brand-badge">PRO</span>
@@ -194,7 +204,7 @@
             </div>
           </div>
 
-          <!-- Redesigned Prominent Action Button -->
+          <!-- Prominent Action Button -->
           <button class="btn-action-prominent btn-cloud" id="btn-generate-link">
             <i class="fa-solid fa-link"></i>
             <span>Generate Direct CDN Link</span>
@@ -315,31 +325,65 @@
             </div>
           </div>
 
-          <!-- Redesigned Prominent Action Button -->
-          <button class="btn-action-prominent btn-edit" id="btn-process-image">
-            <i class="fa-solid fa-wand-magic-sparkles"></i>
-            <span>Process Image (1 Credit)</span>
-          </button>
+          <!-- ISSUE 1 FIX: Prominent Action Buttons with Equal Height & Non-Stretching Alignment -->
+          <div class="edit-action-row" style="display: flex; align-items: center; gap: 10px; margin-top: 14px; width: 100%;">
+            <button class="btn-action-prominent btn-edit" id="btn-process-image" style="flex: 1; height: 46px; padding: 0 20px; font-size: 14px; display: inline-flex; align-items: center; justify-content: center; gap: 8px;">
+              <i class="fa-solid fa-wand-magic-sparkles"></i>
+              <span>Process Image (1 Credit)</span>
+            </button>
+            <button type="button" class="btn-action-prominent btn-edit btn-undo-reset" id="btn-undo-reset" title="Undo / Reset to Original" style="height: 46px; padding: 0 18px; font-size: 14px; width: auto; white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex-shrink: 0;">
+              <i class="fa-solid fa-rotate-left"></i>
+              <span>Undo / Reset</span>
+            </button>
+          </div>
 
-          <!-- Result Container with Original Size vs Processed Size -->
+          <!-- Result Container with Strict Tool Isolation -->
           <div class="tool-result-container" id="edit-result-container" style="display: none;">
             <div class="result-header">
               <i class="fa-solid fa-circle-check text-success"></i>
               <span>Processing Completed!</span>
             </div>
 
-            <!-- Original Size vs Processed Size Comparison -->
-            <div class="before-after-card">
+            <!-- 1. COMPRESS RESULT CARD -->
+            <div class="before-after-card" id="res-card-compress">
               <div class="ba-col">
                 <span class="ba-label">Original Size</span>
                 <span class="ba-value" id="ba-before-size">0 KB</span>
               </div>
               <div class="ba-divider"><i class="fa-solid fa-arrow-right"></i></div>
               <div class="ba-col">
-                <span class="ba-label">Processed Size</span>
+                <span class="ba-label">Compressed Size</span>
                 <span class="ba-value highlight" id="ba-after-size">0 KB</span>
               </div>
               <div class="ba-badge" id="ba-saved-badge">Saved 0%</div>
+            </div>
+
+            <!-- 2. RESIZE RESULT CARD -->
+            <div class="before-after-card" id="res-card-resize" style="display: none;">
+              <div class="ba-col">
+                <span class="ba-label">Original Dims</span>
+                <span class="ba-value font-mono" id="resize-before-dims">0 × 0</span>
+              </div>
+              <div class="ba-divider"><i class="fa-solid fa-arrow-right"></i></div>
+              <div class="ba-col">
+                <span class="ba-label">New Dims</span>
+                <span class="ba-value font-mono highlight" id="resize-after-dims">0 × 0</span>
+              </div>
+              <div class="ba-badge" id="resize-size-badge">0 KB</div>
+            </div>
+
+            <!-- 3. CONVERT RESULT CARD -->
+            <div class="before-after-card" id="res-card-convert" style="display: none;">
+              <div class="ba-col">
+                <span class="ba-label">Original Format</span>
+                <span class="ba-value font-mono" id="convert-before-fmt">JPG</span>
+              </div>
+              <div class="ba-divider"><i class="fa-solid fa-arrow-right"></i></div>
+              <div class="ba-col">
+                <span class="ba-label">Target Format</span>
+                <span class="ba-value font-mono highlight" id="convert-after-fmt">WEBP</span>
+              </div>
+              <div class="ba-badge" id="convert-size-badge">0 KB</div>
             </div>
 
             <a href="#" download="edited-media.jpg" class="btn-download-action" id="btn-download-processed">
@@ -378,31 +422,31 @@
             <span>The document will be rendered at native resolution in standard PDF document format.</span>
           </div>
 
-          <!-- Redesigned Prominent Action Button -->
+          <!-- Prominent Action Button -->
           <button class="btn-action-prominent btn-pdf" id="btn-create-pdf">
             <i class="fa-solid fa-file-pdf"></i>
             <span>Convert to PDF (1 Credit)</span>
           </button>
 
-          <!-- Result Container with Original Size vs Processed Size -->
+          <!-- Result Container with Isolated PDF Stats -->
           <div class="tool-result-container" id="pdf-result-container" style="display: none;">
             <div class="result-header">
               <i class="fa-solid fa-circle-check text-success"></i>
               <span>PDF Document Ready!</span>
             </div>
 
-            <!-- Original Image Size vs Processed PDF Size Comparison -->
-            <div class="before-after-card">
+            <!-- Isolated PDF Before-After Card -->
+            <div class="before-after-card" id="res-card-pdf">
               <div class="ba-col">
-                <span class="ba-label">Original Image</span>
+                <span class="ba-label">Image Size</span>
                 <span class="ba-value" id="pdf-before-size">0 KB</span>
               </div>
               <div class="ba-divider"><i class="fa-solid fa-arrow-right"></i></div>
               <div class="ba-col">
-                <span class="ba-label">Processed PDF</span>
+                <span class="ba-label">Generated PDF Size</span>
                 <span class="ba-value highlight" id="pdf-output-size">0 KB</span>
               </div>
-              <div class="ba-badge" id="pdf-saved-badge">Ready</div>
+              <div class="ba-badge" id="pdf-saved-badge">PDF Ready</div>
             </div>
 
             <div class="pdf-ready-card mt-2">
