@@ -11,7 +11,7 @@ from firebase_admin import credentials, firestore
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
 
-# Initialize Telebot client for Flask API calls
+# Initialize Telebot client for Flask API calls (Force Join verification)
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 bot_api = telebot.TeleBot(BOT_TOKEN) if BOT_TOKEN else None
 
@@ -195,7 +195,27 @@ def get_user():
     except Exception as e:
         return jsonify({"error": str(e), "credits": 0, "referrals": 0}), 500
 
-# 2. API: Image Upload via ImgHippo (Does NOT deduct credits)
+# 2. API: Deduct Credit (Universal Credit Deduction System)
+@app.route('/api/deduct_credit', methods=['POST'])
+def deduct_credit():
+    try:
+        data = request.get_json(silent=True) or request.form or {}
+        user_id = data.get('user_id')
+        if not user_id:
+            return jsonify({"error": "user_id is required"}), 400
+
+        can_proceed, remaining_credits, err_msg = verify_and_deduct_credits(user_id, amount=1)
+        if not can_proceed:
+            return jsonify({"error": err_msg or "Insufficient Credits", "credits": remaining_credits}), 403
+
+        return jsonify({
+            "success": True,
+            "credits": remaining_credits
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# 3. API: Image Upload via ImgHippo (Does NOT deduct credits)
 @app.route('/api/upload', methods=['POST'])
 def process_upload():
     try:
@@ -250,142 +270,6 @@ def process_upload():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# 3. API: Resize Image (Checks credits, processes with Pillow, deducts 1 credit)
-@app.route('/api/resize', methods=['POST'])
-def process_resize():
-    try:
-        if 'file' not in request.files:
-            return jsonify({"error": "No file uploaded"}), 400
-
-        file = request.files['file']
-        user_id = request.form.get('user_id')
-        if not user_id:
-            return jsonify({"error": "user_id is required"}), 400
-
-        width = request.form.get('width', type=int)
-        height = request.form.get('height', type=int)
-
-        if not width or not height or width <= 0 or height <= 0:
-            return jsonify({"error": "Valid width and height (integers > 0) are required"}), 400
-
-        # Check and deduct 1 credit from Firebase
-        can_proceed, remaining_credits, err_msg = verify_and_deduct_credits(user_id, amount=1)
-        if not can_proceed:
-            return jsonify({"error": err_msg or "Insufficient Credits"}), 403
-
-        img = Image.open(file.stream)
-        if img.mode in ("RGBA", "P"):
-            img = img.convert("RGB")
-
-        resized_img = img.resize((width, height), Image.Resampling.LANCZOS)
-
-        output_io = io.BytesIO()
-        resized_img.save(output_io, format='JPEG', quality=95)
-        output_io.seek(0)
-
-        response = send_file(
-            output_io,
-            mimetype='image/jpeg',
-            as_attachment=True,
-            download_name='resized.jpg'
-        )
-        response.headers['X-Remaining-Credits'] = str(remaining_credits)
-        return response
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-# 4. API: Compress / Convert Image (Checks credits, processes with Pillow, deducts 1 credit)
-@app.route('/api/compress', methods=['POST'])
-def process_compress():
-    try:
-        if 'file' not in request.files:
-            return jsonify({"error": "No file uploaded"}), 400
-
-        file = request.files['file']
-        user_id = request.form.get('user_id')
-        if not user_id:
-            return jsonify({"error": "user_id is required"}), 400
-
-        quality = request.form.get('quality', default=75, type=int)
-        target_format = request.form.get('format', default='jpeg').lower()
-
-        if quality < 5 or quality > 100:
-            quality = 75
-
-        # Check and deduct 1 credit from Firebase
-        can_proceed, remaining_credits, err_msg = verify_and_deduct_credits(user_id, amount=1)
-        if not can_proceed:
-            return jsonify({"error": err_msg or "Insufficient Credits"}), 403
-
-        img = Image.open(file.stream)
-        output_io = io.BytesIO()
-
-        if target_format == 'png':
-            if img.mode not in ('RGB', 'RGBA'):
-                img = img.convert('RGBA')
-            img.save(output_io, format='PNG', optimize=True)
-            mime_type = 'image/png'
-            download_name = 'converted.png'
-        elif target_format == 'webp':
-            if img.mode not in ('RGB', 'RGBA'):
-                img = img.convert('RGB')
-            img.save(output_io, format='WEBP', quality=quality, method=6)
-            mime_type = 'image/webp'
-            download_name = 'compressed.webp'
-        else:
-            if img.mode in ("RGBA", "P"):
-                img = img.convert("RGB")
-            img.save(output_io, format='JPEG', optimize=True, quality=quality)
-            mime_type = 'image/jpeg'
-            download_name = 'compressed.jpg'
-
-        output_io.seek(0)
-        response = send_file(
-            output_io,
-            mimetype=mime_type,
-            as_attachment=True,
-            download_name=download_name
-        )
-        response.headers['X-Remaining-Credits'] = str(remaining_credits)
-        return response
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-# 5. API: Convert Image to PDF (Checks credits, processes with Pillow, deducts 1 credit)
-@app.route('/api/pdf', methods=['POST'])
-def process_pdf():
-    try:
-        if 'file' not in request.files:
-            return jsonify({"error": "No file uploaded"}), 400
-
-        file = request.files['file']
-        user_id = request.form.get('user_id')
-        if not user_id:
-            return jsonify({"error": "user_id is required"}), 400
-
-        # Check and deduct 1 credit from Firebase
-        can_proceed, remaining_credits, err_msg = verify_and_deduct_credits(user_id, amount=1)
-        if not can_proceed:
-            return jsonify({"error": err_msg or "Insufficient Credits"}), 403
-
-        img = Image.open(file.stream)
-        if img.mode != 'RGB':
-            img = img.convert('RGB')
-
-        output_io = io.BytesIO()
-        img.save(output_io, format='PDF', resolution=100.0)
-        output_io.seek(0)
-
-        response = send_file(
-            output_io,
-            mimetype='application/pdf',
-            as_attachment=True,
-            download_name='document.pdf'
-        )
-        response.headers['X-Remaining-Credits'] = str(remaining_credits)
-        return response
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 # ==========================================
 # ২. TELEBOT (pyTelegramBotAPI) BOT
