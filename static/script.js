@@ -38,6 +38,7 @@ document.addEventListener("DOMContentLoaded", () => {
     
     // File Output State Managers
     processedImgUrl: null,
+    processedImgDataUrl: null, // Added for TG Webview Fallback Support
     processedImgName: null,
     currentPdf: null,
     currentPdfName: null
@@ -79,9 +80,6 @@ document.addEventListener("DOMContentLoaded", () => {
     fetchUserCredits();
   }
 
-  /**
-   * Fetches real user credit balance and referrals from /api/get_user
-   */
   async function fetchUserCredits() {
     try {
       const response = await fetch(`/api/get_user?user_id=${encodeURIComponent(appState.user.id)}`);
@@ -117,9 +115,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (cardRef) cardRef.textContent = appState.user.referrals;
   }
 
-  /**
-   * Universal Credit Deduction: Calls backend /api/deduct_credit ONLY AFTER successful action
-   */
   async function triggerDeductCredit() {
     try {
       const response = await fetch("/api/deduct_credit", {
@@ -138,7 +133,6 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (err) {
       console.warn("Deduct credit network sync notice:", err);
     }
-    // Local fallback decrement if offline or test environment
     if (typeof appState.user.credits === "number" && appState.user.credits > 0) {
       appState.user.credits -= 1;
       updateCreditsDOM();
@@ -286,7 +280,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // ===================================================================
-  // SECTION D: HOME PAGE - IMAGE METADATA INSPECTOR (CLIENT-SIDE ONLY)
+  // SECTION D: HOME PAGE - IMAGE METADATA INSPECTOR
   // ===================================================================
   const inspectorDropzone = document.getElementById("inspector-dropzone");
   const inspectorFileInput = document.getElementById("inspector-file-input");
@@ -393,7 +387,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ===================================================================
-  // SECTION E: CLOUD PAGE (IMGHIPPO CDN - CLIENT PRE-COMPRESSION)
+  // SECTION E: CLOUD PAGE (IMGHIPPO CDN)
   // ===================================================================
   const cloudUploadBox = document.getElementById("cloud-upload-box");
   const cloudFileInput = document.getElementById("cloud-file-input");
@@ -434,9 +428,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  /**
-   * Pre-compress image in browser using HTML5 Canvas to accelerate upload
-   */
   function preCompressImageForCloud(file) {
     return new Promise((resolve) => {
       const img = new Image();
@@ -538,22 +529,18 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnProcessImage = document.getElementById("btn-process-image");
   const editResultContainer = document.getElementById("edit-result-container");
 
-  // Isolated Result Cards
   const resCardCompress = document.getElementById("res-card-compress");
   const resCardResize = document.getElementById("res-card-resize");
   const resCardConvert = document.getElementById("res-card-convert");
 
-  // Compress Result Elements
   const baBeforeSize = document.getElementById("ba-before-size");
   const baAfterSize = document.getElementById("ba-after-size");
   const baSavedBadge = document.getElementById("ba-saved-badge");
 
-  // Resize Result Elements
   const resizeBeforeDims = document.getElementById("resize-before-dims");
   const resizeAfterDims = document.getElementById("resize-after-dims");
   const resizeSizeBadge = document.getElementById("resize-size-badge");
 
-  // Convert Result Elements
   const convertBeforeFmt = document.getElementById("convert-before-fmt");
   const convertAfterFmt = document.getElementById("convert-after-fmt");
   const convertSizeBadge = document.getElementById("convert-size-badge");
@@ -575,18 +562,12 @@ document.addEventListener("DOMContentLoaded", () => {
   let originalUploadedFile = null;
   const btnUndoReset = document.getElementById("btn-undo-reset");
 
-  // 1. Processed Image Dynamic Downloader 
+  // 1. PROCESSED IMAGE DYNAMIC DOWNLOADER (TELEGRAM SAFE)
   if (btnDownloadProcessed) {
     btnDownloadProcessed.addEventListener("click", (e) => {
       e.preventDefault();
       if (appState.processedImgUrl && appState.processedImgName) {
-        const link = document.createElement("a");
-        link.style.display = "none";
-        link.href = appState.processedImgUrl;
-        link.download = appState.processedImgName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        triggerDownload(appState.processedImgUrl, appState.processedImgDataUrl, appState.processedImgName);
       } else {
         showTgAlert("No processed image available to download.");
       }
@@ -632,21 +613,17 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      // Restore to original uploaded file
       appState.editFile = originalUploadedFile;
-      
-      // Wipe temporary process outputs
       appState.processedImgUrl = null;
+      appState.processedImgDataUrl = null;
       appState.processedImgName = null;
 
       const objectUrl = URL.createObjectURL(originalUploadedFile);
       editPreviewImg.src = objectUrl;
 
-      // Restore original dimensions
       if (resizeW) resizeW.value = appState.editNaturalWidth;
       if (resizeH) resizeH.value = appState.editNaturalHeight;
 
-      // Reset result containers to default hidden state
       editResultContainer.style.display = "none";
       if (resCardCompress) resCardCompress.style.display = "none";
       if (resCardResize) resCardResize.style.display = "none";
@@ -663,6 +640,7 @@ document.addEventListener("DOMContentLoaded", () => {
       appState.editFile = null;
       appState.editImgElement = null;
       appState.processedImgUrl = null;
+      appState.processedImgDataUrl = null;
       appState.processedImgName = null;
       
       editFileInput.value = "";
@@ -685,9 +663,7 @@ document.addEventListener("DOMContentLoaded", () => {
         subtabPanels[appState.activeEditSubtab].classList.add("active");
       }
 
-      // Hide result container until processed on this subtab
       editResultContainer.style.display = "none";
-
       if (tg?.HapticFeedback) tg.HapticFeedback.selectionChanged();
     });
   });
@@ -729,9 +705,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  /**
-   * 1-SECOND INSTANT CLIENT-SIDE IMAGE PROCESSING ENGINE (HTML5 CANVAS)
-   */
   if (btnProcessImage) {
     btnProcessImage.addEventListener("click", async () => {
       if (!appState.editFile) {
@@ -739,14 +712,12 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      // 1. Verify credits before starting
       if (!checkCreditsAvailable()) return;
 
       const activeTab = appState.activeEditSubtab;
       let targetW = appState.editNaturalWidth;
       let targetH = appState.editNaturalHeight;
 
-      // Handle Resize inputs & STRICT 0x0 validation
       if (activeTab === "resize") {
         targetW = parseInt(resizeW?.value, 10);
         targetH = parseInt(resizeH?.value, 10);
@@ -757,7 +728,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       }
 
-      // Target Format & MIME Type
       let mimeType = "image/jpeg";
       let targetExt = "jpg";
       let quality = 0.85;
@@ -769,8 +739,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       if (activeTab === "compress") {
-        // ISSUE 1 FIX: Compression MUST explicitly set format to 'image/jpeg'
-        // and pass the quality slider value as a decimal (e.g. 36% -> 0.36)
         mimeType = "image/jpeg";
         targetExt = "jpg";
         const sliderVal = compressSlider ? parseInt(compressSlider.value, 10) : 75;
@@ -791,7 +759,6 @@ document.addEventListener("DOMContentLoaded", () => {
           quality = 0.85;
         }
       } else {
-        // Resize tab: default to JPEG with high quality
         mimeType = "image/jpeg";
         targetExt = "jpg";
         quality = 0.90;
@@ -820,6 +787,10 @@ document.addEventListener("DOMContentLoaded", () => {
           ctx.imageSmoothingQuality = "high";
           ctx.drawImage(img, 0, 0, targetW, targetH);
 
+          // Get DataURL immediately for Telegram Fallback
+          const processedDataUrl = canvas.toDataURL(mimeType, quality);
+          appState.processedImgDataUrl = processedDataUrl;
+
           canvas.toBlob(async (blob) => {
             if (!blob) {
               showLoader(false);
@@ -828,14 +799,12 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             const processedUrl = URL.createObjectURL(blob);
-            appState.processedImgUrl = processedUrl; // Persist for downloader action
-            
+            appState.processedImgUrl = processedUrl; 
             editPreviewImg.src = processedUrl;
 
             const origSize = appState.editFile.size;
             const processedSize = blob.size;
 
-            // STRICT SEPARATION OF TOOL RESULTS
             if (resCardCompress) resCardCompress.style.display = "none";
             if (resCardResize) resCardResize.style.display = "none";
             if (resCardConvert) resCardConvert.style.display = "none";
@@ -875,7 +844,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
             editResultContainer.style.display = "flex";
 
-            // Universal Credit Deduction: Call backend ONLY AFTER successful processing
             await triggerDeductCredit();
 
             showLoader(false);
@@ -913,12 +881,17 @@ document.addEventListener("DOMContentLoaded", () => {
   const pdfOutputName = document.getElementById("pdf-output-name");
   const btnDownloadPdf = document.getElementById("btn-download-pdf");
 
-  // 2. jsPDF API File Extractor Logic
+  // 2. jsPDF DYNAMIC DOWNLOADER (TELEGRAM SAFE)
   if (btnDownloadPdf) {
     btnDownloadPdf.addEventListener("click", (e) => {
       e.preventDefault();
       if (appState.currentPdf && appState.currentPdfName) {
-        appState.currentPdf.save(appState.currentPdfName);
+        // Generate both Blob and DataURL from jsPDF
+        const pdfBlob = appState.currentPdf.output("blob");
+        const pdfBlobUrl = URL.createObjectURL(pdfBlob);
+        const pdfDataUrl = appState.currentPdf.output("datauristring");
+        
+        triggerDownload(pdfBlobUrl, pdfDataUrl, appState.currentPdfName);
       } else {
         showTgAlert("No PDF available to download.");
       }
@@ -961,7 +934,6 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      // Check credit balance before starting
       if (!checkCreditsAvailable()) return;
 
       showLoader(true, "Compiling PDF document locally...");
@@ -980,7 +952,6 @@ document.addEventListener("DOMContentLoaded", () => {
         const height = img.naturalHeight;
         const isLandscape = width > height;
 
-        // Render to canvas to produce standard RGB JPEG bytes for jsPDF
         const canvas = document.createElement("canvas");
         canvas.width = width;
         canvas.height = height;
@@ -1004,9 +975,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         pdf.addImage(imgData, "JPEG", 0, 0, width, height);
         
-        // Cache object map for dynamic downloading feature later
         appState.currentPdf = pdf;
-        
         const pdfBlob = pdf.output("blob");
 
         URL.revokeObjectURL(objectUrl);
@@ -1015,14 +984,12 @@ document.addEventListener("DOMContentLoaded", () => {
         const docTitle = `${cleanName}.pdf`;
         appState.currentPdfName = docTitle;
 
-        // Update PDF Result UI
         if (pdfBeforeSize) pdfBeforeSize.textContent = formatBytes(appState.pdfFile.size);
         if (pdfOutputSize) pdfOutputSize.textContent = formatBytes(pdfBlob.size);
         if (pdfOutputName) pdfOutputName.textContent = docTitle;
 
         pdfResultContainer.style.display = "flex";
 
-        // Call backend deduct route ONLY AFTER successful local processing
         await triggerDeductCredit();
 
         showLoader(false);
@@ -1035,8 +1002,63 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ===================================================================
-  // SECTION H: COMMON UTILITIES
+  // SECTION H: COMMON UTILITIES & ROBUST DOWNLOAD MANAGER
   // ===================================================================
+  
+  /**
+   * Universal File Downloader
+   * Bypasses iOS/Android Telegram WebView restrictions by injecting Data URLs
+   */
+  function triggerDownload(blobUrl, dataUrl, filename) {
+    const isTelegram = tg && tg.initDataUnsafe && Object.keys(tg.initDataUnsafe).length > 0;
+
+    if (isTelegram) {
+      // 1. Attempt Telegram Native Download API (if supported)
+      if (typeof tg.downloadFile === 'function') {
+        try {
+          tg.downloadFile({ url: blobUrl, file_name: filename });
+          return;
+        } catch (e) {
+          console.warn("tg.downloadFile error:", e);
+        }
+      }
+      
+      // 2. Telegram Fallback 1: Target _blank with Data URL
+      // Pushing a Data URL to _blank reliably forces the native viewer sheet in Telegram iOS/Android
+      try {
+        const link = document.createElement("a");
+        link.href = dataUrl || blobUrl;
+        link.download = filename;
+        link.target = "_blank"; 
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } catch (e) {
+        console.warn("Anchor fallback failed. Forcing Window Open:", e);
+      }
+
+      // 3. Telegram Fallback 2: Execute explicit window.open backup
+      // In some environments link.click() silently fails without throwing error
+      setTimeout(() => {
+        try {
+          window.open(dataUrl || blobUrl, "_blank");
+        } catch(e) {
+          showTgAlert("Unable to open file. Please open Mini App via browser.");
+        }
+      }, 300);
+
+    } else {
+      // Standard Web Browser Behavior
+      const link = document.createElement("a");
+      link.style.display = "none";
+      link.href = blobUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  }
+
   function showLoader(show, message = "Processing asset...") {
     const loader = document.getElementById("async-loader");
     const loaderMsg = document.getElementById("loader-status-msg");
