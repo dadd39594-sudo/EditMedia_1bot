@@ -562,7 +562,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let originalUploadedFile = null;
   const btnUndoReset = document.getElementById("btn-undo-reset");
 
-  // 1. PROCESSED IMAGE DYNAMIC DOWNLOADER (TELEGRAM SAFE)
+  // 1. PROCESSED IMAGE DYNAMIC DOWNLOADER
   if (btnDownloadProcessed) {
     btnDownloadProcessed.addEventListener("click", (e) => {
       e.preventDefault();
@@ -881,12 +881,11 @@ document.addEventListener("DOMContentLoaded", () => {
   const pdfOutputName = document.getElementById("pdf-output-name");
   const btnDownloadPdf = document.getElementById("btn-download-pdf");
 
-  // 2. jsPDF DYNAMIC DOWNLOADER (TELEGRAM SAFE)
+  // 2. jsPDF DYNAMIC DOWNLOADER
   if (btnDownloadPdf) {
     btnDownloadPdf.addEventListener("click", (e) => {
       e.preventDefault();
       if (appState.currentPdf && appState.currentPdfName) {
-        // Generate both Blob and DataURL from jsPDF
         const pdfBlob = appState.currentPdf.output("blob");
         const pdfBlobUrl = URL.createObjectURL(pdfBlob);
         const pdfDataUrl = appState.currentPdf.output("datauristring");
@@ -1007,7 +1006,8 @@ document.addEventListener("DOMContentLoaded", () => {
   
   /**
    * Universal File Downloader
-   * Bypasses iOS/Android Telegram WebView restrictions by injecting Data URLs
+   * Triggers standard downloads on Web, but provides bulletproof visual 
+   * instruction fallbacks for Telegram WebApp environments.
    */
   function triggerDownload(blobUrl, dataUrl, filename) {
     const isTelegram = tg && tg.initDataUnsafe && Object.keys(tg.initDataUnsafe).length > 0;
@@ -1017,14 +1017,12 @@ document.addEventListener("DOMContentLoaded", () => {
       if (typeof tg.downloadFile === 'function') {
         try {
           tg.downloadFile({ url: blobUrl, file_name: filename });
-          return;
         } catch (e) {
           console.warn("tg.downloadFile error:", e);
         }
       }
       
-      // 2. Telegram Fallback 1: Target _blank with Data URL
-      // Pushing a Data URL to _blank reliably forces the native viewer sheet in Telegram iOS/Android
+      // 2. Attempt Data URL in new tab / anchor click (might fail silently)
       try {
         const link = document.createElement("a");
         link.href = dataUrl || blobUrl;
@@ -1034,18 +1032,20 @@ document.addEventListener("DOMContentLoaded", () => {
         link.click();
         document.body.removeChild(link);
       } catch (e) {
-        console.warn("Anchor fallback failed. Forcing Window Open:", e);
+        console.warn("Anchor fallback failed:", e);
       }
 
-      // 3. Telegram Fallback 2: Execute explicit window.open backup
-      // In some environments link.click() silently fails without throwing error
-      setTimeout(() => {
-        try {
-          window.open(dataUrl || blobUrl, "_blank");
-        } catch(e) {
-          showTgAlert("Unable to open file. Please open Mini App via browser.");
-        }
-      }, 300);
+      // 3. IMMEDIATELY show the fallback instruction alert
+      // Because Telegram iOS/Android often silently blocks step 1 & 2 entirely
+      if (tg?.showAlert) {
+        tg.showAlert("Telegram blocks direct downloads.\n\nTo save your image/PDF, please tap the 3 dots (⋮) in the top right corner and select 'Open in Browser'.");
+      } else {
+        alert("Telegram blocks direct downloads.\n\nTo save your image/PDF, please tap the 3 dots (⋮) in the top right corner and select 'Open in Browser'.");
+      }
+      
+      if (tg?.HapticFeedback) {
+        tg.HapticFeedback.notificationOccurred("warning");
+      }
 
     } else {
       // Standard Web Browser Behavior
