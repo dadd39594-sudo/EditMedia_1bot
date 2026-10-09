@@ -6,3 +6,4 @@ firebase-admin==6.2.0
 gunicorn==21.2.0
 aiohttp
 pyTelegramBotAPI
+cloudinary
