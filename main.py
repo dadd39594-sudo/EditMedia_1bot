@@ -8,6 +8,8 @@ from PIL import Image
 from flask import Flask, render_template, request, jsonify, send_file, send_from_directory
 import firebase_admin
 from firebase_admin import credentials, firestore
+import cloudinary
+import cloudinary.uploader
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
 
@@ -215,9 +217,16 @@ def deduct_credit():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# 2. API: Image Upload via ImgHippo (Does NOT deduct credits)
+# 2. API: Image Upload via Cloudinary (Does NOT deduct credits)
+# Cloudinary Configuration
+cloudinary.config(
+    cloud_name="zeffphfx",
+    api_key="171397913433522",
+    api_secret="QEgF6BgSqvzAF8LN8cADT7eCXi8"
+)
+
 @app.route('/api/upload', methods=['POST'])
-def upload_to_imghippo():
+def upload_to_cloudinary():
     if 'file' not in request.files:
         return jsonify({'error': 'No file part'}), 400
     
@@ -226,27 +235,14 @@ def upload_to_imghippo():
         return jsonify({'error': 'No selected file'}), 400
 
     try:
-        # API Key 100% ঠিক নিয়মে Headers-এ পাঠানো হলো
-        api_key = "Ih_live_d8d5a392ba105a7d6264745a023521bc9a1fcc780d81976a"
-        headers = {
-            "X-API-Key": api_key
-        }
+        # Uploading to Cloudinary
+        result = cloudinary.uploader.upload(file)
         
-        response = requests.post(
-            "https://api.imghippo.com/v1/upload",
-            headers=headers,
-            files={"file": (file.filename, file.read(), file.mimetype)}
-        )
-        
-        result = response.json()
-        if response.status_code == 200 and result.get("status") == 200:
-            return jsonify({'url': result['data']['url']})
-        else:
-            return jsonify({'error': result.get("message", "Upload failed")}), 400
+        # Cloudinary returns 'secure_url' for the uploaded image
+        return jsonify({'url': result.get('secure_url')})
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-
 
 # ==========================================
 # ২. TELEBOT (pyTelegramBotAPI) BOT
@@ -403,7 +399,7 @@ def get_welcome_text(user, credits_val, referrals_val):
         "<blockquote>"
         "<b>✨ ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴇᴅɪᴛᴍᴇᴅɪᴀ ʙᴏᴛ ✨</b>\n"
         "━━━━━━━━━━━━━━━━━━\n"
-        "<i>ʏᴏᴜʀ ᴀʟʟ-ɪɴ-ᴏɴᴇ ᴛᴇʟᴇɢʀᴀᴍ ᴍɪɴɪ ᴀᴘᴘ ꜰᴏʀ sᴍᴀʀᴛ ɪᴍᴀɢᴇ ᴘʀᴏᴄᴇssɪɴɢ. ᴏᴘᴇɴ ᴛʜᴇ ᴡᴇʙ ᴀᴘᴘ ᴛᴏ ᴇᴀsɪʟʏ ɢᴇɴᴇʀᴀᴛᴇ ɪᴍᴀɢᴇ ʟɪɴᴋs, ᴄᴏᴍᴘʀᴇss ᴘʜᴏᴛᴏs, ᴀɴᴅ ᴄᴏɴᴠᴇʀᴛ ɪᴍᴀɢᴇs ᴛᴏ ᴘᴅꜰ ɪɴ sᴇᴄᴏɴᴅs!</i>\n"
+        "<i>ʏᴏᴜʀ ᴀʟʟ-ɪɴ-ᴏɴᴇ ᴛᴇʟᴇɢʀᴀᴍ ᴍɪɴɪ ᴀᴘᴘ ꜰᴏʀ sᴍᴀʀᴛ ɪᴍᴀɢᴇ ᴘʀᴏssɪɴɢ. ᴏᴘᴇɴ ᴛʜᴇ ᴡᴇʙ ᴀᴘᴘ ᴛᴏ ᴇᴀsɪʟʏ ɢᴇɴᴇʀᴀᴛᴇ ɪᴍᴀɢᴇ ʟɪɴᴋs, ᴄᴏᴍᴘʀᴇss ᴘʜᴏᴛᴏs, ᴀɴᴅ ᴄᴏɴᴠᴇʀᴛ ɪᴍᴀɢᴇs ᴛᴏ ᴘᴅꜰ ɪɴ sᴇᴄᴏɴᴅs!</i>\n"
         "━━━━━━━━━━━━━━━━━━\n"
         f"👤 <b>ɴᴀᴍᴇ:</b> {full_name}\n"
         f"🔗 <b>ᴘʀᴏꜰɪʟᴇ:</b> {profile}\n"
@@ -533,7 +529,7 @@ def message_dispatcher(message):
                 "<blockquote>"
                 "<b>✅ REQUEST SENT ✅</b>\n"
                 "━━━━━━━━━━━━━━━━━━\n"
-                "ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ ʜᴀs ʙᴇᴇɴ sᴜᴄssꜰᴜʟʟʏ sᴇɴᴛ ᴛᴏ ᴛʜᴇ ᴀᴅᴍɪɴ!\n\n"
+                "ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ ʜᴀs ʙᴇᴇɴ sᴜᴄᴄᴇssꜰᴜʟʟʏ sᴇɴᴛ ᴛᴏ ᴛʜᴇ ᴀᴅᴍɪɴ!\n\n"
                 "👉 <i>ᴘʟᴇᴀsᴇ sᴇɴᴅ /start ᴛᴏ ɢᴏ ʙᴀᴄᴋ ᴛᴏ ᴛʜᴇ ᴍᴀɪɴ ᴍᴇɴᴜ.</i>\n"
                 "━━━━━━━━━━━━━━━━━━"
                 "</blockquote>"
