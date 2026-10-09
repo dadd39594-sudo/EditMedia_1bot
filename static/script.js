@@ -34,7 +34,13 @@ document.addEventListener("DOMContentLoaded", () => {
     editNaturalWidth: 0,
     editNaturalHeight: 0,
     editAspectRatio: 1,
-    activeEditSubtab: "compress"
+    activeEditSubtab: "compress",
+    
+    // File Output State Managers
+    processedImgUrl: null,
+    processedImgName: null,
+    currentPdf: null,
+    currentPdfName: null
   };
 
   // ===================================================================
@@ -553,7 +559,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const convertSizeBadge = document.getElementById("convert-size-badge");
 
   const btnDownloadProcessed = document.getElementById("btn-download-processed");
-
   const subtabBtns = document.querySelectorAll(".subtab-btn");
   const subtabPanels = {
     compress: document.getElementById("panel-compress"),
@@ -569,6 +574,24 @@ document.addEventListener("DOMContentLoaded", () => {
 
   let originalUploadedFile = null;
   const btnUndoReset = document.getElementById("btn-undo-reset");
+
+  // 1. Processed Image Dynamic Downloader 
+  if (btnDownloadProcessed) {
+    btnDownloadProcessed.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (appState.processedImgUrl && appState.processedImgName) {
+        const link = document.createElement("a");
+        link.style.display = "none";
+        link.href = appState.processedImgUrl;
+        link.download = appState.processedImgName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } else {
+        showTgAlert("No processed image available to download.");
+      }
+    });
+  }
 
   if (editUploadBox && editFileInput) {
     editUploadBox.addEventListener("click", () => {
@@ -611,6 +634,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Restore to original uploaded file
       appState.editFile = originalUploadedFile;
+      
+      // Wipe temporary process outputs
+      appState.processedImgUrl = null;
+      appState.processedImgName = null;
 
       const objectUrl = URL.createObjectURL(originalUploadedFile);
       editPreviewImg.src = objectUrl;
@@ -635,6 +662,9 @@ document.addEventListener("DOMContentLoaded", () => {
       originalUploadedFile = null;
       appState.editFile = null;
       appState.editImgElement = null;
+      appState.processedImgUrl = null;
+      appState.processedImgName = null;
+      
       editFileInput.value = "";
       editPlaceholder.style.display = "flex";
       editPreviewWrapper.style.display = "none";
@@ -798,6 +828,8 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             const processedUrl = URL.createObjectURL(blob);
+            appState.processedImgUrl = processedUrl; // Persist for downloader action
+            
             editPreviewImg.src = processedUrl;
 
             const origSize = appState.editFile.size;
@@ -824,23 +856,23 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
               }
               if (resCardCompress) resCardCompress.style.display = "flex";
-              btnDownloadProcessed.download = `${cleanName}-compressed.${targetExt}`;
+              appState.processedImgName = `${cleanName}-compressed.${targetExt}`;
+              
             } else if (activeTab === "resize") {
               if (resizeBeforeDims) resizeBeforeDims.textContent = `${appState.editNaturalWidth} × ${appState.editNaturalHeight}`;
               if (resizeAfterDims) resizeAfterDims.textContent = `${targetW} × ${targetH}`;
               if (resizeSizeBadge) resizeSizeBadge.textContent = formatBytes(processedSize);
               if (resCardResize) resCardResize.style.display = "flex";
-              btnDownloadProcessed.download = `${cleanName}-${targetW}x${targetH}.${targetExt}`;
+              appState.processedImgName = `${cleanName}-${targetW}x${targetH}.${targetExt}`;
+              
             } else if (activeTab === "convert") {
               if (convertBeforeFmt) convertBeforeFmt.textContent = origFormat;
               if (convertAfterFmt) convertAfterFmt.textContent = targetExt.toUpperCase();
               if (convertSizeBadge) convertSizeBadge.textContent = formatBytes(processedSize);
               if (resCardConvert) resCardConvert.style.display = "flex";
-              btnDownloadProcessed.download = `${cleanName}-converted.${targetExt}`;
+              appState.processedImgName = `${cleanName}-converted.${targetExt}`;
             }
 
-            // Assign instant Download link
-            btnDownloadProcessed.href = processedUrl;
             editResultContainer.style.display = "flex";
 
             // Universal Credit Deduction: Call backend ONLY AFTER successful processing
@@ -881,6 +913,18 @@ document.addEventListener("DOMContentLoaded", () => {
   const pdfOutputName = document.getElementById("pdf-output-name");
   const btnDownloadPdf = document.getElementById("btn-download-pdf");
 
+  // 2. jsPDF API File Extractor Logic
+  if (btnDownloadPdf) {
+    btnDownloadPdf.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (appState.currentPdf && appState.currentPdfName) {
+        appState.currentPdf.save(appState.currentPdfName);
+      } else {
+        showTgAlert("No PDF available to download.");
+      }
+    });
+  }
+
   if (pdfUploadBox && pdfFileInput) {
     pdfUploadBox.addEventListener("click", () => {
       if (!appState.pdfFile) pdfFileInput.click();
@@ -901,6 +945,8 @@ document.addEventListener("DOMContentLoaded", () => {
     btnPdfRemove.addEventListener("click", (e) => {
       e.stopPropagation();
       appState.pdfFile = null;
+      appState.currentPdf = null;
+      appState.currentPdfName = null;
       pdfFileInput.value = "";
       pdfPlaceholder.style.display = "flex";
       pdfPreviewWrapper.style.display = "none";
@@ -957,23 +1003,22 @@ document.addEventListener("DOMContentLoaded", () => {
         });
 
         pdf.addImage(imgData, "JPEG", 0, 0, width, height);
+        
+        // Cache object map for dynamic downloading feature later
+        appState.currentPdf = pdf;
+        
         const pdfBlob = pdf.output("blob");
 
         URL.revokeObjectURL(objectUrl);
 
-        const outputUrl = URL.createObjectURL(pdfBlob);
         const cleanName = appState.pdfFile.name.substring(0, appState.pdfFile.name.lastIndexOf('.')) || "document";
         const docTitle = `${cleanName}.pdf`;
+        appState.currentPdfName = docTitle;
 
         // Update PDF Result UI
         if (pdfBeforeSize) pdfBeforeSize.textContent = formatBytes(appState.pdfFile.size);
         if (pdfOutputSize) pdfOutputSize.textContent = formatBytes(pdfBlob.size);
         if (pdfOutputName) pdfOutputName.textContent = docTitle;
-
-        if (btnDownloadPdf) {
-          btnDownloadPdf.href = outputUrl;
-          btnDownloadPdf.download = docTitle;
-        }
 
         pdfResultContainer.style.display = "flex";
 
