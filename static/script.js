@@ -1035,7 +1035,9 @@ document.addEventListener("DOMContentLoaded", () => {
    * Protects against Telegram In-App Browser blocking blobs.
    */
   function triggerDownload(blobUrl, dataUrl, filename) {
-    if (navigator.userAgent.includes("Telegram")) {
+    const isTelegramBrowser = navigator.userAgent.toLowerCase().includes('telegram') || typeof window.TelegramWebviewProxy !== "undefined";
+
+    if (isTelegramBrowser) {
       showTgAlert("⚠️ Telegram browser blocks downloads. Please tap the 3 dots (⋮) in the top right corner and select 'Open in Browser' (e.g., Chrome) to save your file.");
       return;
     }
