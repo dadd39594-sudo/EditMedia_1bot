@@ -50,6 +50,9 @@ document.addEventListener("DOMContentLoaded", () => {
   function initUserData() {
     const urlParams = new URLSearchParams(window.location.search);
     const urlUserId = urlParams.get('user_id');
+    const urlName = urlParams.get('name');
+    const urlUsername = urlParams.get('username');
+
     const tgUser = tg?.initDataUnsafe?.user;
 
     // Default to Telegram info if available (Fallback)
@@ -60,8 +63,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // OVERRIDE: Prioritize Standard Web Browser URL Parameters
-    if (urlUserId) {
-      appState.user.id = String(urlUserId);
+    if (urlUserId) appState.user.id = String(urlUserId);
+    if (urlName) appState.user.name = urlName;
+    if (urlUsername) {
+      appState.user.username = urlUsername.startsWith('@') ? urlUsername : `@${urlUsername}`;
     }
 
     // Populate initial text in DOM
@@ -78,11 +83,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const tgIdEl = document.getElementById("user-telegram-id");
     if (tgIdEl) tgIdEl.textContent = appState.user.id;
 
-    if (tgUser?.photo_url && !urlUserId) {
-      const avatarWrap = document.getElementById("user-avatar-wrap");
-      if (avatarWrap) {
-        avatarWrap.innerHTML = `<img src="${tgUser.photo_url}" alt="Avatar" />`;
-      }
+    // Generate Beautiful Avatar via UI Avatars API based on the user's name
+    const avatarWrap = document.getElementById("user-avatar-wrap");
+    if (avatarWrap) {
+      const safeName = encodeURIComponent(appState.user.name || "User");
+      const avatarUrl = `https://ui-avatars.com/api/?name=${safeName}&background=random&color=fff`;
+      avatarWrap.innerHTML = `<img src="${avatarUrl}" alt="Avatar" />`;
     }
 
     // Fetch live user credits from backend Firebase collection
@@ -97,8 +103,8 @@ document.addEventListener("DOMContentLoaded", () => {
         appState.user.credits = typeof data.credits === "number" ? data.credits : 10;
         appState.user.referrals = typeof data.referrals === "number" ? data.referrals : 0;
         
-        // Update user display name natively from backend if we only had ID via URL
-        if (data.name && data.name !== "") {
+        // Let URL params prioritize, but if name missing from URL but exists in DB, apply it.
+        if (data.name && data.name !== "" && !new URLSearchParams(window.location.search).get('name')) {
            appState.user.name = data.name;
            const welcomeEl = document.getElementById("welcome-user-name");
            if (welcomeEl) welcomeEl.textContent = data.name.split(" ")[0];
@@ -1026,9 +1032,14 @@ document.addEventListener("DOMContentLoaded", () => {
   
   /**
    * Universal File Downloader
-   * Now optimized for standard Native Mobile / Desktop Browser environment.
+   * Protects against Telegram In-App Browser blocking blobs.
    */
   function triggerDownload(blobUrl, dataUrl, filename) {
+    if (navigator.userAgent.includes("Telegram")) {
+      showTgAlert("⚠️ Telegram browser blocks downloads. Please tap the 3 dots (⋮) in the top right corner and select 'Open in Browser' (e.g., Chrome) to save your file.");
+      return;
+    }
+
     try {
       const link = document.createElement("a");
       link.style.display = "none";
