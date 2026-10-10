@@ -1,11 +1,11 @@
 /**
  * ===================================================================
- * EDITMEDIA PRO - TELEGRAM WEBAPP JAVASCRIPT ENGINE
+ * EDITMEDIA PRO - WEB APP JAVASCRIPT ENGINE (STANDARD BROWSER)
  * ===================================================================
  */
 
 document.addEventListener("DOMContentLoaded", () => {
-  // 1. Initialize Telegram WebApp SDK
+  // 1. Initialize Telegram WebApp SDK (Only for styling if opened within TG browser)
   const tg = window.Telegram?.WebApp;
   if (tg) {
     try {
@@ -38,21 +38,30 @@ document.addEventListener("DOMContentLoaded", () => {
     
     // File Output State Managers
     processedImgUrl: null,
-    processedImgDataUrl: null, // Added for TG Webview Fallback Support
+    processedImgDataUrl: null,
     processedImgName: null,
     currentPdf: null,
     currentPdfName: null
   };
 
   // ===================================================================
-  // SECTION A: TELEGRAM USER INITIALIZATION & DATA BINDING
+  // SECTION A: USER INITIALIZATION (URL PARAMS + TELEGRAM FALLBACK)
   // ===================================================================
   function initUserData() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlUserId = urlParams.get('user_id');
     const tgUser = tg?.initDataUnsafe?.user;
+
+    // Default to Telegram info if available (Fallback)
     if (tgUser) {
       appState.user.name = tgUser.first_name + (tgUser.last_name ? " " + tgUser.last_name : "");
       appState.user.username = tgUser.username ? `@${tgUser.username}` : "@user";
       appState.user.id = String(tgUser.id);
+    }
+
+    // OVERRIDE: Prioritize Standard Web Browser URL Parameters
+    if (urlUserId) {
+      appState.user.id = String(urlUserId);
     }
 
     // Populate initial text in DOM
@@ -69,7 +78,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const tgIdEl = document.getElementById("user-telegram-id");
     if (tgIdEl) tgIdEl.textContent = appState.user.id;
 
-    if (tgUser?.photo_url) {
+    if (tgUser?.photo_url && !urlUserId) {
       const avatarWrap = document.getElementById("user-avatar-wrap");
       if (avatarWrap) {
         avatarWrap.innerHTML = `<img src="${tgUser.photo_url}" alt="Avatar" />`;
@@ -87,6 +96,16 @@ document.addEventListener("DOMContentLoaded", () => {
         const data = await response.json();
         appState.user.credits = typeof data.credits === "number" ? data.credits : 10;
         appState.user.referrals = typeof data.referrals === "number" ? data.referrals : 0;
+        
+        // Update user display name natively from backend if we only had ID via URL
+        if (data.name && data.name !== "") {
+           appState.user.name = data.name;
+           const welcomeEl = document.getElementById("welcome-user-name");
+           if (welcomeEl) welcomeEl.textContent = data.name.split(" ")[0];
+           const fullNameEl = document.getElementById("user-full-name");
+           if (fullNameEl) fullNameEl.textContent = data.name;
+        }
+
         updateCreditsDOM();
       } else {
         if (appState.user.credits === null) {
@@ -156,7 +175,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const fjModal = document.getElementById("force-join-modal");
   const fjContainer = document.getElementById("fj-channels-container");
   const fjStatus = document.getElementById("fj-status");
-  const currentUserId = tg?.initDataUnsafe?.user?.id;
+  
+  const urlParamsFJ = new URLSearchParams(window.location.search);
+  const currentUserId = urlParamsFJ.get('user_id') || tg?.initDataUnsafe?.user?.id;
 
   let pollInterval = null;
   let isChecking = false;
@@ -562,7 +583,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let originalUploadedFile = null;
   const btnUndoReset = document.getElementById("btn-undo-reset");
 
-  // 1. PROCESSED IMAGE DYNAMIC DOWNLOADER
+  // 1. PROCESSED IMAGE DYNAMIC DOWNLOADER (STANDARD BROWSER HTML5)
   if (btnDownloadProcessed) {
     btnDownloadProcessed.addEventListener("click", (e) => {
       e.preventDefault();
@@ -787,7 +808,6 @@ document.addEventListener("DOMContentLoaded", () => {
           ctx.imageSmoothingQuality = "high";
           ctx.drawImage(img, 0, 0, targetW, targetH);
 
-          // Get DataURL immediately for Telegram Fallback
           const processedDataUrl = canvas.toDataURL(mimeType, quality);
           appState.processedImgDataUrl = processedDataUrl;
 
@@ -881,7 +901,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const pdfOutputName = document.getElementById("pdf-output-name");
   const btnDownloadPdf = document.getElementById("btn-download-pdf");
 
-  // 2. jsPDF DYNAMIC DOWNLOADER
+  // 2. jsPDF DYNAMIC DOWNLOADER (STANDARD BROWSER HTML5)
   if (btnDownloadPdf) {
     btnDownloadPdf.addEventListener("click", (e) => {
       e.preventDefault();
@@ -1006,56 +1026,21 @@ document.addEventListener("DOMContentLoaded", () => {
   
   /**
    * Universal File Downloader
-   * Triggers standard downloads on Web, but provides bulletproof visual 
-   * instruction fallbacks for Telegram WebApp environments.
+   * Now optimized for standard Native Mobile / Desktop Browser environment.
    */
   function triggerDownload(blobUrl, dataUrl, filename) {
-    const isTelegram = tg && tg.initDataUnsafe && Object.keys(tg.initDataUnsafe).length > 0;
-
-    if (isTelegram) {
-      // 1. Attempt Telegram Native Download API (if supported)
-      if (typeof tg.downloadFile === 'function') {
-        try {
-          tg.downloadFile({ url: blobUrl, file_name: filename });
-        } catch (e) {
-          console.warn("tg.downloadFile error:", e);
-        }
-      }
-      
-      // 2. Attempt Data URL in new tab / anchor click (might fail silently)
-      try {
-        const link = document.createElement("a");
-        link.href = dataUrl || blobUrl;
-        link.download = filename;
-        link.target = "_blank"; 
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      } catch (e) {
-        console.warn("Anchor fallback failed:", e);
-      }
-
-      // 3. IMMEDIATELY show the fallback instruction alert
-      // Because Telegram iOS/Android often silently blocks step 1 & 2 entirely
-      if (tg?.showAlert) {
-        tg.showAlert("Telegram blocks direct downloads.\n\nTo save your image/PDF, please tap the 3 dots (⋮) in the top right corner and select 'Open in Browser'.");
-      } else {
-        alert("Telegram blocks direct downloads.\n\nTo save your image/PDF, please tap the 3 dots (⋮) in the top right corner and select 'Open in Browser'.");
-      }
-      
-      if (tg?.HapticFeedback) {
-        tg.HapticFeedback.notificationOccurred("warning");
-      }
-
-    } else {
-      // Standard Web Browser Behavior
+    try {
       const link = document.createElement("a");
       link.style.display = "none";
-      link.href = blobUrl;
+      // Prefer blobUrl for large files, fallback to dataUrl if necessary
+      link.href = blobUrl || dataUrl; 
       link.download = filename;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+    } catch (e) {
+      console.error("Standard download failed:", e);
+      showTgAlert("Unable to download the file directly. Try long-pressing the image to save it.");
     }
   }
 
@@ -1067,12 +1052,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function showTgAlert(msg) {
-    if (tg?.showAlert) {
-      tg.showAlert(msg);
-    } else {
-      alert(msg);
-    }
-    if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred("error");
+    alert(msg);
   }
 
   function formatBytes(bytes, decimals = 1) {
