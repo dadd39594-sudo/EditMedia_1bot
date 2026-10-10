@@ -356,7 +356,8 @@ def is_user_banned(user_id):
 
 def build_main_keyboard(user_id):
     markup = InlineKeyboardMarkup()
-    markup.row(InlineKeyboardButton("🖥 Open Web App", web_app=WebAppInfo(url=WEBAPP_URL), style="primary"))
+    # ARCHITECTURAL SWITCH: Opens as an external standard webpage with user_id param
+    markup.row(InlineKeyboardButton("🌐 Open Web App", url=f"{WEBAPP_URL}?user_id={user_id}", style="primary"))
     markup.row(
         InlineKeyboardButton("📖 How to Use", callback_data="how_to_use", style="primary"),
         InlineKeyboardButton("🎁 Refer & Earn", callback_data="refer_earn", style="primary")
