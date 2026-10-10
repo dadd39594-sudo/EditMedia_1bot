@@ -1029,83 +1029,11 @@ document.addEventListener("DOMContentLoaded", () => {
   // ===================================================================
   // SECTION H: COMMON UTILITIES & ROBUST DOWNLOAD MANAGER
   // ===================================================================
-  
-  /**
-   * Generates a dynamic HTML viewer Blob URL containing the media.
-   */
-  function createViewerUrl(dataUrl, filename) {
-    const isPdf = filename.toLowerCase().endsWith('.pdf') || dataUrl.startsWith('data:application/pdf');
-    let mediaHtml = '';
-    
-    if (isPdf) {
-      mediaHtml = `<embed src="${dataUrl}" type="application/pdf" width="100%" height="100%" style="border: none; flex-grow: 1;" />
-                   <p style="text-align:center; color:#888; font-size: 14px; margin-top: 10px;">If the PDF doesn't display, <a href="${dataUrl}" target="_blank" style="color: #4a90e2;">click here</a>.</p>`;
-    } else {
-      mediaHtml = `<img src="${dataUrl}" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);" />`;
-    }
-
-    const htmlString = `
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>${filename}</title>
-      <style>
-        body {
-          margin: 0;
-          padding: 0;
-          background-color: #0c0d12;
-          color: #fff;
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          height: 100vh;
-          box-sizing: border-box;
-        }
-        .banner {
-          background-color: #ef4444;
-          color: white;
-          width: 100%;
-          text-align: center;
-          padding: 12px;
-          font-weight: 600;
-          font-size: 14px;
-          box-sizing: border-box;
-          box-shadow: 0 2px 10px rgba(239, 68, 68, 0.3);
-          z-index: 10;
-        }
-        .media-container {
-          flex-grow: 1;
-          width: 100%;
-          max-width: 800px;
-          padding: 16px;
-          box-sizing: border-box;
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          flex-direction: column;
-        }
-      </style>
-    </head>
-    <body>
-      <div class="banner">👆 Long press the image/document below to download 👆</div>
-      <div class="media-container">
-        ${mediaHtml}
-      </div>
-    </body>
-    </html>
-    `;
-
-    const blob = new Blob([htmlString], { type: 'text/html' });
-    return URL.createObjectURL(blob);
-  }
 
   /**
-   * Injects and displays a custom modal for Telegram browser users.
+   * Injects and displays a dynamic custom modal.
    */
-  function showDownloadModal(viewerUrl) {
+  function showDownloadModal(title, message, btnText, btnAction) {
     const existing = document.getElementById("tg-download-modal");
     if (existing) existing.remove();
 
@@ -1115,11 +1043,11 @@ document.addEventListener("DOMContentLoaded", () => {
           <button id="tg-dl-close" style="position: absolute; top: 12px; right: 12px; background: transparent; border: none; color: #888; font-size: 24px; cursor: pointer; padding: 4px; line-height: 1;">&times;</button>
           
           <div style="font-size: 40px; margin-bottom: 16px;">⚠️</div>
-          <h3 style="margin: 0 0 12px 0; color: #fff; font-size: 18px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">Action Required</h3>
-          <p style="margin: 0 0 20px 0; color: #a1a1aa; font-size: 14px; line-height: 1.5; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">Telegram blocks direct downloads. Tap below to open your file and long-press to save it.</p>
+          <h3 style="margin: 0 0 12px 0; color: #fff; font-size: 18px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">${title}</h3>
+          <p style="margin: 0 0 20px 0; color: #a1a1aa; font-size: 14px; line-height: 1.5; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">${message}</p>
           
-          <button id="tg-dl-open" style="width: 100%; background: linear-gradient(135deg, #3b82f6, #2563eb); color: #fff; border: none; border-radius: 8px; padding: 12px 16px; font-size: 15px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-family: -apple-system, BlinkMacSystemFont, sans-serif; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);">
-            🌐 Open in Browser
+          <button id="tg-dl-action" style="width: 100%; background: linear-gradient(135deg, #3b82f6, #2563eb); color: #fff; border: none; border-radius: 8px; padding: 12px 16px; font-size: 15px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-family: -apple-system, BlinkMacSystemFont, sans-serif; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);">
+            ${btnText}
           </button>
         </div>
       </div>
@@ -1143,40 +1071,91 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     document.getElementById("tg-dl-close").addEventListener("click", closeModal);
-    document.getElementById("tg-dl-open").addEventListener("click", () => {
-      window.open(viewerUrl, "_blank");
-      closeModal();
+    document.getElementById("tg-dl-action").addEventListener("click", () => {
+      if (btnAction) {
+        btnAction(closeModal);
+      } else {
+        closeModal();
+      }
     });
   }
 
   /**
    * Universal File Downloader
-   * Protects against Telegram In-App Browser blocking blobs by launching custom viewer.
+   * Protects against Telegram In-App Browser blocking blobs by auto-uploading images to Cloudinary fallback.
    */
-  function triggerDownload(blobUrl, dataUrl, filename) {
+  async function triggerDownload(blobUrl, dataUrl, filename) {
     const isTelegramBrowser = navigator.userAgent.toLowerCase().includes('telegram') || typeof window.TelegramWebviewProxy !== "undefined";
+    const isPdf = filename.toLowerCase().endsWith('.pdf') || (dataUrl && dataUrl.startsWith('data:application/pdf'));
 
-    if (isTelegramBrowser) {
-      // Ensure we have dataUrl for embedding directly in the HTML Blob
-      const safeDataUrl = dataUrl || blobUrl;
-      const viewerUrl = createViewerUrl(safeDataUrl, filename);
-      showDownloadModal(viewerUrl);
+    if (!isTelegramBrowser) {
+      // Standard Native Web Browser Download
+      try {
+        const link = document.createElement("a");
+        link.style.display = "none";
+        // Prefer blobUrl for large files, fallback to dataUrl if necessary
+        link.href = blobUrl || dataUrl; 
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } catch (e) {
+        console.error("Standard download failed:", e);
+        showTgAlert("Unable to download the file directly. Try long-pressing the image to save it.");
+      }
       return;
     }
 
-    // Standard Native Web Browser Download
-    try {
-      const link = document.createElement("a");
-      link.style.display = "none";
-      // Prefer blobUrl for large files, fallback to dataUrl if necessary
-      link.href = blobUrl || dataUrl; 
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } catch (e) {
-      console.error("Standard download failed:", e);
-      showTgAlert("Unable to download the file directly. Try long-pressing the image to save it.");
+    // --- Telegram Browser Fallbacks ---
+    if (isPdf) {
+      // PDF Fallback Modal
+      showDownloadModal(
+        "Action Required",
+        "Telegram blocks PDF downloads. Please tap the 3 dots (⋮) top-right and select 'Open in Browser' to save your document.",
+        "Got it",
+        (closeFunc) => closeFunc()
+      );
+    } else {
+      // Image Fallback: Auto-upload to Cloudinary
+      showLoader(true, "Preparing secure download link...");
+      try {
+        const response = await fetch(blobUrl || dataUrl);
+        const blob = await response.blob();
+        
+        const formData = new FormData();
+        formData.append("file", blob, filename);
+        formData.append("user_id", appState.user.id);
+
+        const uploadRes = await fetch("/api/upload", {
+          method: "POST",
+          body: formData
+        });
+        
+        const data = await uploadRes.json();
+        if (!uploadRes.ok) throw new Error(data.error || "Upload failed");
+        
+        showLoader(false);
+        
+        showDownloadModal(
+          "Download Ready",
+          "Tap below to open your high-quality image securely, then long-press on the image to save it to your gallery.",
+          "🌐 Open in Browser",
+          (closeFunc) => {
+            window.open(data.url, "_blank");
+            closeFunc();
+          }
+        );
+      } catch (error) {
+        showLoader(false);
+        console.error("Auto-upload fallback failed:", error);
+        // Fallback to basic instruction if upload fails
+        showDownloadModal(
+          "Action Required",
+          "Telegram blocks direct downloads. Please tap the 3 dots (⋮) top-right and select 'Open in Browser' to save your file.",
+          "Got it",
+          (closeFunc) => closeFunc()
+        );
+      }
     }
   }
 
