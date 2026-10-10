@@ -10,6 +10,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import cloudinary
 import cloudinary.uploader
+from urllib.parse import quote
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
 
@@ -253,6 +254,7 @@ import sys
 import json
 import html
 import urllib.parse
+from urllib.parse import quote
 import asyncio
 import time
 from datetime import datetime
@@ -354,16 +356,24 @@ def is_user_banned(user_id):
     data = get_user_data(user_id)
     return bool(data.get("is_banned", False)) if data else False
 
-def build_main_keyboard(user_id):
+def build_main_keyboard(user):
     markup = InlineKeyboardMarkup()
-    # ARCHITECTURAL SWITCH: Opens as an external standard webpage with user_id param
-    markup.row(InlineKeyboardButton("🌐 Open Web App", url=f"{WEBAPP_URL}?user_id={user_id}", style="primary"))
+    
+    # Safely format user's name and username into URL parameters
+    full_name = user.first_name + (" " + user.last_name if user.last_name else "")
+    safe_name = quote(full_name)
+    safe_username = quote(user.username if user.username else "user")
+    
+    # Opens as an external standard webpage with param identifiers
+    webapp_link = f"{WEBAPP_URL}?user_id={user.id}&name={safe_name}&username={safe_username}"
+    
+    markup.row(InlineKeyboardButton("🌐 Open Web App", url=webapp_link, style="primary"))
     markup.row(
         InlineKeyboardButton("📖 How to Use", callback_data="how_to_use", style="primary"),
         InlineKeyboardButton("🎁 Refer & Earn", callback_data="refer_earn", style="primary")
     )
     markup.row(InlineKeyboardButton("🎧 Support", callback_data="support", style="primary"))
-    if user_id == ADMIN_ID:
+    if user.id == ADMIN_ID:
         markup.row(InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin_panel", style="primary"))
     return markup
 
@@ -497,7 +507,7 @@ def start_handler(message):
     referrals_val = user_data.get("referrals", 0) if user_data else 0
 
     welcome_text = get_welcome_text(user, credits_val, referrals_val)
-    keyboard = build_main_keyboard(user.id)
+    keyboard = build_main_keyboard(user)
     bot.reply_to(message, welcome_text, reply_markup=keyboard)
 
 # --- TEXT / MEDIA INPUT HANDLER (STATE DISPATCHER) ---
@@ -750,7 +760,7 @@ def callback_handler(call):
         credits_val = user_data.get("credits", 10) if user_data else 10
         referrals_val = user_data.get("referrals", 0) if user_data else 0
         text = get_welcome_text(user, credits_val, referrals_val)
-        keyboard = build_main_keyboard(user.id)
+        keyboard = build_main_keyboard(user)
         bot.edit_message_text(text, chat_id=chat_id, message_id=message_id, reply_markup=keyboard)
         bot.answer_callback_query(call.id)
 
