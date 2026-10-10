@@ -589,7 +589,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let originalUploadedFile = null;
   const btnUndoReset = document.getElementById("btn-undo-reset");
 
-  // 1. PROCESSED IMAGE DYNAMIC DOWNLOADER (STANDARD BROWSER HTML5)
+  // 1. PROCESSED IMAGE DYNAMIC DOWNLOADER
   if (btnDownloadProcessed) {
     btnDownloadProcessed.addEventListener("click", (e) => {
       e.preventDefault();
@@ -907,7 +907,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const pdfOutputName = document.getElementById("pdf-output-name");
   const btnDownloadPdf = document.getElementById("btn-download-pdf");
 
-  // 2. jsPDF DYNAMIC DOWNLOADER (STANDARD BROWSER HTML5)
+  // 2. jsPDF DYNAMIC DOWNLOADER
   if (btnDownloadPdf) {
     btnDownloadPdf.addEventListener("click", (e) => {
       e.preventDefault();
@@ -1031,17 +1031,140 @@ document.addEventListener("DOMContentLoaded", () => {
   // ===================================================================
   
   /**
+   * Generates a dynamic HTML viewer Blob URL containing the media.
+   */
+  function createViewerUrl(dataUrl, filename) {
+    const isPdf = filename.toLowerCase().endsWith('.pdf') || dataUrl.startsWith('data:application/pdf');
+    let mediaHtml = '';
+    
+    if (isPdf) {
+      mediaHtml = `<embed src="${dataUrl}" type="application/pdf" width="100%" height="100%" style="border: none; flex-grow: 1;" />
+                   <p style="text-align:center; color:#888; font-size: 14px; margin-top: 10px;">If the PDF doesn't display, <a href="${dataUrl}" target="_blank" style="color: #4a90e2;">click here</a>.</p>`;
+    } else {
+      mediaHtml = `<img src="${dataUrl}" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);" />`;
+    }
+
+    const htmlString = `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>${filename}</title>
+      <style>
+        body {
+          margin: 0;
+          padding: 0;
+          background-color: #0c0d12;
+          color: #fff;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          height: 100vh;
+          box-sizing: border-box;
+        }
+        .banner {
+          background-color: #ef4444;
+          color: white;
+          width: 100%;
+          text-align: center;
+          padding: 12px;
+          font-weight: 600;
+          font-size: 14px;
+          box-sizing: border-box;
+          box-shadow: 0 2px 10px rgba(239, 68, 68, 0.3);
+          z-index: 10;
+        }
+        .media-container {
+          flex-grow: 1;
+          width: 100%;
+          max-width: 800px;
+          padding: 16px;
+          box-sizing: border-box;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          flex-direction: column;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="banner">👆 Long press the image/document below to download 👆</div>
+      <div class="media-container">
+        ${mediaHtml}
+      </div>
+    </body>
+    </html>
+    `;
+
+    const blob = new Blob([htmlString], { type: 'text/html' });
+    return URL.createObjectURL(blob);
+  }
+
+  /**
+   * Injects and displays a custom modal for Telegram browser users.
+   */
+  function showDownloadModal(viewerUrl) {
+    const existing = document.getElementById("tg-download-modal");
+    if (existing) existing.remove();
+
+    const modalHtml = `
+      <div id="tg-download-modal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 9999; display: flex; justify-content: center; align-items: center; backdrop-filter: blur(4px); padding: 20px; box-sizing: border-box; opacity: 0; transition: opacity 0.3s ease;">
+        <div style="background: #151821; border-radius: 16px; width: 100%; max-width: 320px; padding: 24px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); position: relative; transform: translateY(20px); transition: transform 0.3s ease;">
+          <button id="tg-dl-close" style="position: absolute; top: 12px; right: 12px; background: transparent; border: none; color: #888; font-size: 24px; cursor: pointer; padding: 4px; line-height: 1;">&times;</button>
+          
+          <div style="font-size: 40px; margin-bottom: 16px;">⚠️</div>
+          <h3 style="margin: 0 0 12px 0; color: #fff; font-size: 18px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">Action Required</h3>
+          <p style="margin: 0 0 20px 0; color: #a1a1aa; font-size: 14px; line-height: 1.5; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">Telegram blocks direct downloads. Tap below to open your file and long-press to save it.</p>
+          
+          <button id="tg-dl-open" style="width: 100%; background: linear-gradient(135deg, #3b82f6, #2563eb); color: #fff; border: none; border-radius: 8px; padding: 12px 16px; font-size: 15px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-family: -apple-system, BlinkMacSystemFont, sans-serif; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);">
+            🌐 Open in Browser
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    const modal = document.getElementById("tg-download-modal");
+    const inner = modal.querySelector('div');
+    
+    // Animate in
+    requestAnimationFrame(() => {
+      modal.style.opacity = '1';
+      inner.style.transform = 'translateY(0)';
+    });
+
+    function closeModal() {
+      modal.style.opacity = '0';
+      inner.style.transform = 'translateY(20px)';
+      setTimeout(() => modal.remove(), 300);
+    }
+
+    document.getElementById("tg-dl-close").addEventListener("click", closeModal);
+    document.getElementById("tg-dl-open").addEventListener("click", () => {
+      window.open(viewerUrl, "_blank");
+      closeModal();
+    });
+  }
+
+  /**
    * Universal File Downloader
-   * Protects against Telegram In-App Browser blocking blobs.
+   * Protects against Telegram In-App Browser blocking blobs by launching custom viewer.
    */
   function triggerDownload(blobUrl, dataUrl, filename) {
     const isTelegramBrowser = navigator.userAgent.toLowerCase().includes('telegram') || typeof window.TelegramWebviewProxy !== "undefined";
 
     if (isTelegramBrowser) {
-      showTgAlert("⚠️ Telegram browser blocks downloads. Please tap the 3 dots (⋮) in the top right corner and select 'Open in Browser' (e.g., Chrome) to save your file.");
+      // Ensure we have dataUrl for embedding directly in the HTML Blob
+      const safeDataUrl = dataUrl || blobUrl;
+      const viewerUrl = createViewerUrl(safeDataUrl, filename);
+      showDownloadModal(viewerUrl);
       return;
     }
 
+    // Standard Native Web Browser Download
     try {
       const link = document.createElement("a");
       link.style.display = "none";
